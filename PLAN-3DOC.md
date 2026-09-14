@@ -189,13 +189,20 @@ Dakhila_Forik1_2025-09-14.zip
     └── summary.txt (Forik 1: 120 students, 300/360 docs done)
 ```
 
-### Phase 9 - Polish & Release (Day 5, 4h) — v2.0.0+10
+### Phase 9 - Polish & Release — ✅ সম্পন্ন (2026-09-14) — v2.0.0+15
 
-- [ ] applicationId `com.madrasa.dakhilacamera` + icon
-- [ ] Keystore + signingConfig + shrinkResources
-- [ ] `flutter build apk --release` + `appbundle`
-- [ ] Integration test: import Excel → capture 3 docs → ZIP → verify
-- [ ] README + PLAN update + screenshots
+- [x] applicationId `com.madrasa.dakhilacamera` + icon (আগেই হয়ে গিয়েছিল)
+- [x] Keystore (`android/key/upload-keystore.jks`) + key.properties + signingConfig
+      + shrinkResources ✅ — **password: DakhilaCam@2026 (নিরাপদে ব্যাকআপ করুন!)**
+- [x] `flutter build apk --release` (signed, split-per-abi: arm64 20.3MB / armv7 18.2MB) + `appbundle` (AAB 55.6MB)
+- [x] Signature verify ✅ (apksigner: V2 Signer, CN=Dakhila Camera)
+- [ ] Integration test: import Excel → capture 3 docs → ZIP → verify (⏳ পরের ইটারেশন)
+- [x] README + PLAN update
+- [ ] Screenshots + Play Store listing (⏳ বিতরণের সময়)
+
+**⚠️ গুরুত্বপূর্ণ:** আগে debug-signed ভার্সন ইনস্টল থাকলে আগে uninstall করুন
+(signature ভিন্ন)। **Keystore (.jks) + password হারালে অ্যাপ আর কখনো আপডেট
+দেওয়া যাবে না — এখনই USB/নিরাপদ স্থানে ব্যাকআপ করুন!**
 
 ---
 

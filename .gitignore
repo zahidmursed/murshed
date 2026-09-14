@@ -49,9 +49,14 @@ app.*.map.json
 
 # Built APK copies at repo root
 /*.apk
+/*.aab
 
 # local JDK copy (jvm.cfg fix)
 .jdk-jbr/
 
 # local JDK (broken AS jbr workaround)
 .jdk/
+
+# release signing (never commit!)
+key.properties
+android/key/
