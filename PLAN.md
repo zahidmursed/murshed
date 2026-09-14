@@ -106,14 +106,21 @@ DB update (`is_captured=1`) → serial mode হলে `pushReplacement` পর�
 
 **Validation:** `flutter test` সবুজ + `flutter analyze` পরিষ্কার।
 
-### Phase 3 — UX উন্নতি (≈ ১–২ দিন) — ✅ 3.1–3.4 সম্পন্ন (2026-09-14), 3.5 ঐচ্ছিক বাকি
+### Phase 3 — UX উন্নতি — ✅ 3A + 3B সম্পন্ন (2026-09-14), 3.5 ঐচ্ছিক বাকি
 
-> **বাস্তবায়নের ফলাফল:** নতুন ফাইল — `lib/models/forik_stat.dart`,
-> `lib/screens/review_screen.dart`, `lib/screens/image_viewer_screen.dart`।
-> লিস্টে ছবির thumbnail + ট্যাপে full-screen viewer (retake/delete — ফাইলসহ),
-> সেভের পর review screen ("আবার তুলুন" / "পরের: XXX"), front/back switch + torch,
-> ফরিকভিত্তিক progress chips (ট্যাপ = ফিল্টার)। DB-তে `clearImage` + `getForikStats`
-> যোগ হয়েছে (টেস্টে কভারড)। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
+**3A — Review System** ✅ সম্পন্ন: Capture → Preview Screen (full image, zoom) →
+[আবার তুলুন] [মুছুন] [পরের >] — ভুল ছবি সাথে সাথে ঠিক করা যায়; Delete = ফাইল +
+রেকর্ড রিসেট করে একই শিক্ষার্থীর ক্যামেরায় ফেরত। লিস্টে thumbnail + full-screen
+viewer-এও retake/delete আছে।
+
+**3B — Camera Pro Controls** ✅ সম্পন্ন: Flash/Torch toggle, Front/Back switch,
+3×3 Passport Grid Overlay (toggle বাটনসহ, `_GridPainter`), Pinch-to-Zoom
+(init-এ `getMin/MaxZoomLevel` ক্যাশ → `setZoomLevel`, zoom indicator,
+ডাবল-ট্যাপে zoom reset; zoom সাপোর্ট না থাকলে silently disable)।
+
+> নতুন ফাইল: `lib/models/forik_stat.dart`, `lib/screens/review_screen.dart`,
+> `lib/screens/image_viewer_screen.dart`। DB-তে `clearImage` + `getForikStats`
+> (টেস্টে কভারড)। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
 | # | কাজ |
 |---|---|
 | 3.1 | লিস্টে তোলা ছবির thumbnail (Image.file) + full-screen viewer + delete |

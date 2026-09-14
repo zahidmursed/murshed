@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/student.dart';
+import '../providers/student_provider.dart';
 import 'camera_screen.dart';
 
 /// ছবি সেভ হওয়ার পর রিভিউ — ভুল ছবি হলে আবার তোলা যায়,
@@ -35,6 +37,52 @@ class ReviewScreen extends StatelessWidget {
     } else {
       Navigator.pop(context);
     }
+  }
+
+  /// ছবি ডিলিট (ফাইল + রেকর্ড) — এরপর একই শিক্ষার্থীর জন্য ক্যামেরায় ফিরে যায়।
+  Future<void> _confirmDelete(BuildContext context) async {
+    final provider = context.read<StudentProvider>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${student.dakhila}.jpg মুছে ফেলবেন?'),
+        content: const Text(
+            'ছবির ফাইল ডিলিট হবে; এরপর আবার তোলার জন্য ক্যামেরায় ফিরে যান।'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('বাতিল'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('মুছুন', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await provider.clearCaptured(student.dakhila);
+    if (!context.mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => CameraScreen(student: student)),
+    );
+  }
+
+  Widget _roundAction(IconData icon, String tooltip, VoidCallback onTap,
+      {Color color = Colors.white}) {
+    return Tooltip(
+      message: tooltip,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          shape: const CircleBorder(),
+          padding: const EdgeInsets.all(16),
+          side: const BorderSide(color: Colors.white54),
+        ),
+        child: Icon(icon, color: color),
+      ),
+    );
   }
 
   @override
@@ -73,19 +121,15 @@ class ReviewScreen extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _retake(context),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white54),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  icon: const Icon(Icons.replay),
-                  label: const Text('আবার তুলুন'),
-                ),
+              _roundAction(Icons.replay, 'আবার তুলুন', () => _retake(context)),
+              const SizedBox(width: 10),
+              _roundAction(
+                Icons.delete_outline,
+                'মুছুন',
+                () => _confirmDelete(context),
+                color: Colors.redAccent,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: FilledButton.icon(
                   onPressed: () => _advance(context),

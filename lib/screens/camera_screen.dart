@@ -25,7 +25,12 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _saving = false;
   bool _switching = false;
   bool _isTorchOn = false;
+  bool _showGrid = true;
   int _cameraIndex = 0;
+  double _minZoom = 1.0;
+  double _maxZoom = 1.0;
+  double _baseZoom = 1.0;
+  double _currentZoom = 1.0;
   String? _error;
 
   @override
@@ -65,12 +70,56 @@ class _CameraScreenState extends State<CameraScreen> {
     );
     _cameraIndex = index;
     _controller = controller;
+    _currentZoom = 1.0;
+    _baseZoom = 1.0;
     await controller.initialize();
     if (!mounted) {
       await controller.dispose();
       return;
     }
+    // zoom সীমা ক্যাশ করা (camera 0.10.x-এ CameraValue-তে zoom ফিল্ড নেই;
+    // সাপোর্ট না থাকলে দুটোই 1.0 — তখন pinch কিছু করবে না)
+    try {
+      _minZoom = await controller.getMinZoomLevel();
+      _maxZoom = await controller.getMaxZoomLevel();
+    } catch (_) {
+      _minZoom = 1.0;
+      _maxZoom = 1.0;
+    }
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
     setState(() => _init = true);
+  }
+
+  /// pinch-to-zoom — scale অনুযায়ী zoom level বাড়ায়/কমায়।
+  Future<void> _onZoomUpdate(ScaleUpdateDetails details) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (_maxZoom <= _minZoom) return; // zoom সাপোর্ট নেই
+    final double target =
+        (_baseZoom * details.scale).clamp(_minZoom, _maxZoom).toDouble();
+    if ((target - _currentZoom).abs() < 0.01) return;
+    _currentZoom = target;
+    try {
+      await controller.setZoomLevel(target);
+    } catch (e) {
+      debugPrint('Zoom error: $e');
+    }
+  }
+
+  /// ডাবল-ট্যাপে zoom রিসেট।
+  Future<void> _resetZoom() async {
+    final controller = _controller;
+    if (controller == null || _maxZoom <= _minZoom) return;
+    _currentZoom = _minZoom;
+    try {
+      await controller.setZoomLevel(_minZoom);
+    } catch (_) {
+      // ignore — কিছু ডিভাইসে zoom সাপোর্ট নেই
+    }
+    if (mounted) setState(() {});
   }
 
   /// front/back ক্যামেরা বদল।
@@ -264,8 +313,44 @@ class _CameraScreenState extends State<CameraScreen> {
                     SizedBox(
                       width: double.infinity,
                       height: double.infinity,
-                      child: CameraPreview(_controller!),
+                      child: GestureDetector(
+                        onScaleStart: (_) => _baseZoom = _currentZoom,
+                        onScaleUpdate: _onZoomUpdate,
+                        onDoubleTap: _resetZoom,
+                        child: CameraPreview(_controller!),
+                      ),
                     ),
+                    // 3x3 rule-of-thirds grid — মুখ মাঝখানে রাখতে সাহায্য করে
+                    if (_showGrid)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _GridPainter(
+                                Colors.white.withValues(alpha: 0.4)),
+                          ),
+                        ),
+                      ),
+                    if (_currentZoom > _minZoom + 0.05)
+                      Positioned(
+                        bottom: 120,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              '${_currentZoom.toStringAsFixed(1)}x',
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 13),
+                            ),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       top: 16,
                       left: 16,
@@ -312,6 +397,10 @@ class _CameraScreenState extends State<CameraScreen> {
                                   ? Colors.amberAccent
                                   : Colors.white,
                             ),
+                          _controlButton(
+                            _showGrid ? Icons.grid_on : Icons.grid_off,
+                            () => setState(() => _showGrid = !_showGrid),
+                          ),
                         ],
                       ),
                     ),
@@ -335,4 +424,27 @@ class _CameraScreenState extends State<CameraScreen> {
               : const Center(child: CircularProgressIndicator()),
     );
   }
+}
+
+/// 3x3 rule-of-thirds গ্রিড ওভারলে — পাসপোর্ট ছবিতে মুখ মাঝখানে রাখতে সাহায্য করে।
+class _GridPainter extends CustomPainter {
+  final Color color;
+
+  _GridPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.0;
+    for (int i = 1; i < 3; i++) {
+      final double dx = size.width * i / 3;
+      final double dy = size.height * i / 3;
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), paint);
+      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter oldDelegate) => oldDelegate.color != color;
 }
