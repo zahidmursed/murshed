@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/document.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
+import '../services/export_service.dart';
 import '../utils/gallery_saver.dart';
 import 'camera_screen.dart';
 import 'image_viewer_screen.dart';
@@ -98,6 +99,28 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
     await GallerySaver.viewFile(path: doc.filePath, mime: mime);
   }
 
+  /// Phase 8: ছাত্রের সব ডক এক merged PDF-এ → শেয়ার শিট।
+  Future<void> _exportMergedPdf() async {
+    setState(() => _busy = true);
+    try {
+      final path = await ExportService.exportStudentMergedPdf(
+          dakhila: widget.student.dakhila);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Merged PDF সেভ হয়েছে')),
+      );
+      await GallerySaver.shareFile(path: path, mime: 'application/pdf');
+    } catch (e) {
+      debugPrint('Merged PDF failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ব্যর্থ: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -112,6 +135,15 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
             padding: const EdgeInsets.all(12),
             children: [
               _headerCard(withDocs),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _exportMergedPdf,
+                  icon: const Icon(Icons.merge_type),
+                  label: const Text('Merged PDF (এক ফাইলে সব ডক)'),
+                ),
+              ),
               const SizedBox(height: 12),
               _docCard(context, withDocs, DocType.PHOTO),
               const SizedBox(height: 12),

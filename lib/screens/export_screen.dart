@@ -127,9 +127,9 @@ class _ExportScreenState extends State<ExportScreen> {
               _tile(
                 icon: Icons.folder_zip,
                 color: Colors.teal,
-                title: 'ZIP এক্সপোর্ট (তোলা ছবি)',
+                title: 'ZIP এক্সপোর্ট (সব ডক)',
                 subtitle:
-                    'ফোল্ডার স্ট্রাকচার: ক্লাস/ফরিক/দাখিলা.jpg + ভিতরে missing report',
+                    'ছাত্র-প্রতি ফোল্ডারে PHOTO/BIRTH/FORM + _reports (missing.csv, summary.txt)',
                 busy: _busy == 'zip',
                 progress: _busy == 'zip' ? _progressText : '',
                 onTap: _busy != null ? null : () => _run('zip'),
@@ -137,8 +137,9 @@ class _ExportScreenState extends State<ExportScreen> {
               _tile(
                 icon: Icons.description,
                 color: Colors.deepOrange,
-                title: 'Missing Report (CSV)',
-                subtitle: 'যাদের ছবি এখনো তোলা হয়নি — Excel-এ খোলা যায়',
+                title: 'Status Report (CSV)',
+                subtitle:
+                    'প্রতি ছাত্রের Photo/Birth/Form স্ট্যাটাস + MissingCount — Excel-এ খোলা যায়',
                 busy: _busy == 'csv',
                 progress: _busy == 'csv' ? _progressText : '',
                 onTap: _busy != null ? null : () => _run('csv'),

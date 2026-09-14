@@ -167,14 +167,14 @@ bulk import-এ `281_BIRTH.pdf` রিজেক্ট, `assignDocument`-এ গ�
 `DocType.allowedExtensions` দিয়ে প্রতি-টাইপ নিয়ম কেন্দ্রীভূত।
 **Validation:** analyze 0, tests 23/23, APK v1.8.1 বিল্ড সফল।
 
-### Phase 8 - Export v2 & Bulk Ops (Day 4, 6h) — v2.0.0
+### Phase 8 - Export v2 & Bulk Ops — ✅ সম্পন্ন (2026-09-14) — v1.9.0+14
 
-| Task | Est |
+| Task | অবস্থা |
 |------|-----|
-| ZIP v2: Forik-wise with subfolders per student (3 files each) | 2h |
-| Missing CSV v2: Dakhila, Name, Photo(yes/no), Birth, Form, MissingCount | 1h |
-| Merged PDF per student: photo + birth + form → 1 PDF (A4) | 2h |
-| Gallery Grid: filter by missing type (only Birth missing) | 1h |
+| ZIP v2: ছাত্র-প্রতি ফোল্ডারে ৩ ডক + `_reports/missing.csv` + `summary.txt` ✅ (streaming encoder, doc-aware) |
+| Missing CSV v2 ✅ (কলাম: Dakhila, Name, Photo/Birth/Form yes/no + MissingCount) |
+| Merged PDF per student ✅ (`exportStudentMergedPdf` — প্রতি ডক এক A4 পেজ; Dashboard বাটন → শেয়ার শিট) |
+| Gallery Grid: missing-type filter chips ✅ (জন্মসনদ বাকি/ফরম বাকি) |
 
 **Export Example:**
 ```

@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.8.1+12 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.9.0+14 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -46,15 +46,17 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - **Undo delete** — মোছার পর ৫ সেকেন্ডে "পুনরুদ্ধার" স্ন্যাকবার
 - AppBar-এ 🖼 আইকনে **ছবি গ্যালারি গ্রিড** — শুধু তোলা ছবি, দ্রুত ভেরিফিকেশন
 
-### 📤 এক্সপোর্ট (AppBar-এ 🗜 আইকন)
-- **ZIP এক্সপোর্ট** — ফোল্ডার স্ট্রাকচার `ক্লাস/ফরিক/দাখিলা.jpg`, ভিতরে missing report;
-  streaming encoder — হাজার ছবিতেও মেমোরি নিরাপদ
-- **Missing Report (CSV)** — যাদের ছবি বাকি (UTF-8 BOM, Excel-এ বাংলা ঠিক দেখায়)
+### 📤 এক্সপোর্ট (AppBar-এ 🗜 আইকন) — v2, doc-aware
+- **ZIP এক্সপোর্ট v2** — ছাত্র-প্রতি ফোল্ডারে **সব ডক** (`ক্লাস/ফরিক/দাখিলা_নাম/দাখিলা_PHOTO.jpg`,
+  `281_BIRTH.jpg`, ...) + `_reports/missing.csv` + `_reports/summary.txt`;
+  streaming encoder — হাজার ফাইলেও মেমোরি নিরাপদ
+- **Status Report (CSV)** — প্রতি ছাত্রের Photo/Birth/Form yes/no + MissingCount
+  (UTF-8 BOM, Excel-এ বাংলা ঠিক দেখায়)
 - **PDF প্রিন্ট শিট** — A4-তে ৯টি করে (3×3) পাসপোর্ট ছবি + দাখিলা নম্বর ক্যাপশন
 - এক্সপোর্ট শেষে সরাসরি **শেয়ার শিট** খোলে (WhatsApp/Gmail/PC)
 - স্কোপ = মূল লিস্টের বর্তমান ক্লাস/ফরিক ফিল্টার
 
-### 📚 3-Document System (Phase 6+7 — v1.8.0)
+### 📚 3-Document System (Phase 6+7+8 — v1.9.0)
 - **একজন ছাত্র = ৩টি স্লট**: 📷 PHOTO • 📜 BIRTH (জন্মসনদ) • 📝 FORM (আবেদন ফরম)
 - লিস্টে **৩-ডট ইনডিকেটর** ●●○ + `x/3 ডক` প্রগ্রেস (সবুজ = সম্পন্ন); ট্যাপে
   **Document Dashboard** — progress ring + ৩টি কার্ড
@@ -93,8 +95,8 @@ flutter build apk --release  # APK তৈরি (universal)
 flutter build apk --release --split-per-abi  # ছোট APK (ABI অনুযায়ী আলাদা, ~16-20MB)
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.8.0-arm64-release.apk` (~20.3MB,
-  আধুনিক ফোন) ও `DakhilaCamera-v1.8.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.9.0-arm64-release.apk` (~20.3MB,
+  আধুনিক ফোন) ও `DakhilaCamera-v1.9.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
 

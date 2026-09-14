@@ -9,9 +9,10 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../db/database_helper.dart';
-import '../models/student.dart';
+import '../models/document.dart';
+import '../services/storage_service.dart';
 
-/// Phase 5A: অফিস এক্সপোর্ট — Forik-wise ZIP, Missing CSV, PDF প্রিন্ট শিট।
+/// Phase 8: অফিস এক্সপোর্ট v2 — doc-aware (PHOTO/BIRTH/FORM)।
 /// স্কোপ: classFilter/forikFilter (মূল লিস্টের বর্তমান ফিল্টার থেকে আসে)।
 class ExportService {
   ExportService._();
@@ -46,27 +47,81 @@ class ExportService {
     return '${now.year}-$m-$d';
   }
 
-  static List<Student> _capturedWithFile(List<Student> students) => students
-      .where((s) =>
-          s.isCaptured == 1 &&
-          s.imagePath != null &&
-          File(s.imagePath!).existsSync())
-      .toList();
+  /// স্কোপের সব ছাত্র + ডকুমেন্ট ম্যাপ লোড
+  static Future<List<StudentWithDocs>> _loadScope(
+      {String? classFilter, String? forikFilter}) async {
+    final students = await DatabaseHelper.instance
+        .getAllStudents(classFilter: classFilter, forikFilter: forikFilter);
+    final docsMap = await DatabaseHelper.instance.getAllDocumentsMap();
+    return students
+        .map((s) => StudentWithDocs(
+              student: s,
+              docs: docsMap[s.dakhila] ?? const <DocType, StudentDocument>{},
+            ))
+        .toList();
+  }
 
-  /// Missing report CSV (UTF-8 BOM — Excel-এ বাংলা ঠিক দেখাতে)
-  static String _missingCsvContent(List<Student> students) {
-    final missing = students.where((s) => s.isCaptured != 1).toList();
+  /// ছাত্রের বিদ্যমান ডকুমেন্ট ফাইলগুলো (ডিস্কে আছে শুধু)
+  static List<StudentDocument> _existingDocs(StudentWithDocs swd) =>
+      swd.docs.values
+          .whereType<StudentDocument>()
+          .where((d) => File(d.filePath).existsSync())
+          .toList();
+
+  /// Status report CSV v2 (UTF-8 BOM): প্রতি ছাত্রের Photo/Birth/Form স্ট্যাটাস।
+  static String _statusCsvContent(List<StudentWithDocs> scope) {
+    String yn(bool v) => v ? 'yes' : 'no';
     final rows = <List<dynamic>>[
-      ['Dakhila', 'Name', 'Class', 'Forik', 'Father'],
-      ...missing.map(
-          (s) => [s.dakhila, s.stuName, s.className, s.forikNo, s.fatherName]),
+      [
+        'Dakhila',
+        'Name',
+        'Class',
+        'Forik',
+        'Photo',
+        'Birth',
+        'Form',
+        'MissingCount'
+      ],
+      ...scope.map((swd) => [
+            swd.student.dakhila,
+            swd.student.stuName,
+            swd.student.className,
+            swd.student.forikNo,
+            yn(swd.hasDoc(DocType.PHOTO)),
+            yn(swd.hasDoc(DocType.BIRTH)),
+            yn(swd.hasDoc(DocType.FORM)),
+            3 - swd.completedCount,
+          ]),
     ];
     return '\uFEFF${const ListToCsvConverter().convert(rows)}';
   }
 
-  /// Forik-wise ফোল্ডার স্ট্রাকচারে সব তোলা ছবির ZIP
-  /// (`ক্লাস/ফরিক_N/দাখিলা.jpg`) + ভিতরে `_missing_report.csv`।
-  /// Streaming encoder — হাজার খানেক ছবিতেও মেমোরি নিরাপদ।
+  /// summary.txt: ফরিক-ভিত্তিক হিসাব
+  static String _summaryContent(List<StudentWithDocs> scope) {
+    final byForik = <String, List<StudentWithDocs>>{};
+    for (final swd in scope) {
+      byForik.putIfAbsent(swd.student.forikNo, () => []).add(swd);
+    }
+    final buf = StringBuffer();
+    var totalStudents = 0;
+    var totalDone = 0;
+    for (final forik in byForik.keys.toList()..sort()) {
+      final list = byForik[forik]!;
+      final done = list.fold<int>(0, (sum, s) => sum + s.completedCount);
+      totalStudents += list.length;
+      totalDone += done;
+      buf.writeln(
+          'Forik $forik: ${list.length} students, $done/${list.length * 3} docs done');
+    }
+    buf.writeln();
+    buf.writeln('Total: $totalStudents students, '
+        '$totalDone/${scope.length * 3} docs done');
+    return buf.toString();
+  }
+
+  /// Phase 8 — ZIP v2: ছাত্র-প্রতি ফোল্ডারে সব ডক (PHOTO/BIRTH/FORM)
+  /// + `_reports/missing.csv` + `_reports/summary.txt`।
+  /// Streaming encoder — হাজার খানেক ফাইলেও মেমোরি নিরাপদ।
   static Future<String> exportZip({
     String? classFilter,
     String? forikFilter,
@@ -74,52 +129,67 @@ class ExportService {
     void Function(int done, int total)? onProgress,
   }) async {
     final dir = outDir ?? await ensureExportDir();
-    final all = await DatabaseHelper.instance
-        .getAllStudents(classFilter: classFilter, forikFilter: forikFilter);
-    final captured = _capturedWithFile(all);
-    if (captured.isEmpty) {
-      throw StateError('এই স্কোপে কোনো তোলা ছবি নেই');
-    }
+    final scope =
+        await _loadScope(classFilter: classFilter, forikFilter: forikFilter);
     final zipPath = p.join(
       dir,
-      'DakhilaPhotos_${_scopeTag(classFilter: classFilter, forikFilter: forikFilter)}_${_stamp()}.zip',
+      'Dakhila_${_scopeTag(classFilter: classFilter, forikFilter: forikFilter)}_${_stamp()}.zip',
     );
+
+    // আগে সব entry যাচাই — কিছু না থাকলে খালি zip-ই তৈরি হবে না
+    final docFiles = <(String, String)>[]; // (zipEntry, sourcePath)
+    for (final swd in scope) {
+      final s = swd.student;
+      final classDir = _sanitize(s.className.isEmpty ? 'Unknown' : s.className);
+      final studentDir =
+          '$classDir/Forik_${_sanitize(s.forikNo)}/${s.dakhila}_${_sanitize(s.stuName)}';
+      for (final d in _existingDocs(swd)) {
+        docFiles.add((
+          '$studentDir/${StorageService.fileName(s.dakhila, d.type, d.ext)}',
+          d.filePath
+        ));
+      }
+    }
+    if (docFiles.isEmpty) {
+      throw StateError('এই স্কোপে কোনো ডকুমেন্ট ফাইল নেই');
+    }
 
     final encoder = ZipFileEncoder();
     encoder.create(zipPath);
     var done = 0;
-    for (final s in captured) {
-      final className =
-          _sanitize(s.className.isEmpty ? 'Unknown' : s.className);
-      final entry = '$className/Forik_${s.forikNo}/${s.dakhila}.jpg';
-      encoder.addFile(File(s.imagePath!), entry);
+    for (final (entry, source) in docFiles) {
+      encoder.addFile(File(source), entry);
       done++;
-      onProgress?.call(done, captured.length);
+      onProgress?.call(done, docFiles.length);
     }
-    final missingCsv = utf8.encode(_missingCsvContent(all));
+    final statusCsv = utf8.encode(_statusCsvContent(scope));
     encoder.addArchiveFile(
-        ArchiveFile('_missing_report.csv', missingCsv.length, missingCsv));
+        ArchiveFile('_reports/missing.csv', statusCsv.length, statusCsv));
+    final summary = utf8.encode(_summaryContent(scope));
+    encoder.addArchiveFile(
+        ArchiveFile('_reports/summary.txt', summary.length, summary));
     encoder.close();
     return zipPath;
   }
 
-  /// যাদের ছবি তোলা হয়নি — CSV রিপোর্ট (Excel-friendly)।
+  /// Phase 8 — Status CSV v2: প্রতি ছাত্রের Photo/Birth/Form স্ট্যাটাস
+  /// + MissingCount (Excel-friendly, UTF-8 BOM)।
   static Future<String> exportMissingCsv({
     String? classFilter,
     String? forikFilter,
     String? outDir,
   }) async {
     final dir = outDir ?? await ensureExportDir();
-    final all = await DatabaseHelper.instance
-        .getAllStudents(classFilter: classFilter, forikFilter: forikFilter);
-    if (all.where((s) => s.isCaptured != 1).isEmpty) {
-      throw StateError('দারুণ! এই স্কোপে সবার ছবি তোলা হয়ে গেছে');
+    final scope =
+        await _loadScope(classFilter: classFilter, forikFilter: forikFilter);
+    if (scope.isEmpty) {
+      throw StateError('এই স্কোপে কোনো ছাত্র নেই');
     }
     final csvPath = p.join(
       dir,
-      'Missing_Report_${_scopeTag(classFilter: classFilter, forikFilter: forikFilter)}_${_stamp()}.csv',
+      'Status_Report_${_scopeTag(classFilter: classFilter, forikFilter: forikFilter)}_${_stamp()}.csv',
     );
-    await File(csvPath).writeAsString(_missingCsvContent(all), encoding: utf8);
+    await File(csvPath).writeAsString(_statusCsvContent(scope), encoding: utf8);
     return csvPath;
   }
 
@@ -132,9 +202,15 @@ class ExportService {
     void Function(int done, int total)? onProgress,
   }) async {
     final dir = outDir ?? await ensureExportDir();
-    final all = await DatabaseHelper.instance
-        .getAllStudents(classFilter: classFilter, forikFilter: forikFilter);
-    final captured = _capturedWithFile(all);
+    final scope =
+        await _loadScope(classFilter: classFilter, forikFilter: forikFilter);
+    final captured = scope
+        .map((swd) => swd.student)
+        .where((s) =>
+            s.isCaptured == 1 &&
+            s.imagePath != null &&
+            File(s.imagePath!).existsSync())
+        .toList();
     if (captured.isEmpty) {
       throw StateError('এই স্কোপে কোনো তোলা ছবি নেই');
     }
@@ -182,6 +258,70 @@ class ExportService {
       dir,
       'PrintSheet_${_scopeTag(classFilter: classFilter, forikFilter: forikFilter)}_${_stamp()}.pdf',
     );
+    await File(pdfPath).writeAsBytes(await doc.save());
+    return pdfPath;
+  }
+
+  /// Phase 8: একজন ছাত্রের সব ডক এক PDF-এ (প্রতি ডক এক A4 পেজ)।
+  /// ইমেজ ডক (JPG/PNG) এমবেড হয়; PDF ডক থাকলে নোট পেজ যোগ হয়।
+  static Future<String> exportStudentMergedPdf({
+    required String dakhila,
+    String? outDir,
+  }) async {
+    final dir = outDir ?? await ensureExportDir();
+    final docsMap = await DatabaseHelper.instance.getAllDocumentsMap();
+    final docs = docsMap[dakhila];
+    if (docs == null || docs.isEmpty) {
+      throw StateError('এই ছাত্রের কোনো ডকুমেন্ট নেই');
+    }
+    final ordered = [DocType.PHOTO, DocType.BIRTH, DocType.FORM]
+        .map((t) => docs[t])
+        .whereType<StudentDocument>()
+        .toList();
+    if (ordered.isEmpty) {
+      throw StateError('এই ছাত্রের কোনো ডকুমেন্ট নেই');
+    }
+
+    final doc = pw.Document();
+    for (final d in ordered) {
+      if (d.ext == 'pdf') {
+        // PDF ডক pdf প্যাকেজে এমবেড করা যায় না — নোট পেজ
+        doc.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (_) => pw.Center(
+            child: pw.Column(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Text('${d.type.name} (PDF)',
+                    style: pw.TextStyle(
+                        fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 8),
+                pw.Text('Separate file: ${d.filePath}',
+                    style: const pw.TextStyle(fontSize: 10)),
+              ],
+            ),
+          ),
+        ));
+        continue;
+      }
+      final bytes = await File(d.filePath).readAsBytes();
+      final image = pw.MemoryImage(bytes);
+      doc.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (_) => pw.Column(children: [
+          pw.Text('${d.type.name} — $dakhila',
+              style:
+                  pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 8),
+          pw.Expanded(
+            child: pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain)),
+          ),
+        ]),
+      ));
+    }
+
+    final pdfPath = p.join(dir, 'Merged_${_sanitize(dakhila)}_${_stamp()}.pdf');
     await File(pdfPath).writeAsBytes(await doc.save());
     return pdfPath;
   }
