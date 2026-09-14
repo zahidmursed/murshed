@@ -9,6 +9,7 @@ import '../db/database_helper.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
 import '../utils/image_processor.dart';
+import 'review_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   final Student student;
@@ -22,6 +23,9 @@ class _CameraScreenState extends State<CameraScreen> {
   List<CameraDescription>? _cameras;
   bool _init = false;
   bool _saving = false;
+  bool _switching = false;
+  bool _isTorchOn = false;
+  int _cameraIndex = 0;
   String? _error;
 
   @override
@@ -44,23 +48,63 @@ class _CameraScreenState extends State<CameraScreen> {
         setState(() => _error = 'কোনো ক্যামেরা পাওয়া যায়নি');
         return;
       }
-      final controller = CameraController(
-        _cameras![0],
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-      _controller = controller;
-      await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
-      setState(() => _init = true);
+      await _initController(_cameraIndex.clamp(0, _cameras!.length - 1));
     } catch (e) {
       debugPrint('Camera init error: $e');
       if (mounted) {
         setState(() => _error = _friendlyCameraError(e));
       }
+    }
+  }
+
+  Future<void> _initController(int index) async {
+    final controller = CameraController(
+      _cameras![index],
+      ResolutionPreset.high,
+      enableAudio: false,
+    );
+    _cameraIndex = index;
+    _controller = controller;
+    await controller.initialize();
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    setState(() => _init = true);
+  }
+
+  /// front/back ক্যামেরা বদল।
+  Future<void> _switchCamera() async {
+    final cameras = _cameras;
+    if (cameras == null || cameras.length < 2 || _switching) return;
+    setState(() => _switching = true);
+    try {
+      final nextIndex = (_cameraIndex + 1) % cameras.length;
+      await _controller?.dispose();
+      _controller = null;
+      _isTorchOn = false;
+      setState(() => _init = false);
+      await _initController(nextIndex);
+    } catch (e) {
+      debugPrint('Camera switch error: $e');
+      if (mounted) {
+        setState(() => _error = _friendlyCameraError(e));
+      }
+    } finally {
+      if (mounted) setState(() => _switching = false);
+    }
+  }
+
+  /// torch/flash টগল (front ক্যামেরায় সাপোর্ট না থাকলে silently ignore)।
+  Future<void> _toggleTorch() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller
+          .setFlashMode(_isTorchOn ? FlashMode.off : FlashMode.torch);
+      if (mounted) setState(() => _isTorchOn = !_isTorchOn);
+    } catch (e) {
+      debugPrint('Flash error: $e');
     }
   }
 
@@ -124,23 +168,24 @@ class _CameraScreenState extends State<CameraScreen> {
           .updateImage(widget.student.dakhila, savePath);
       if (!mounted) return;
 
-      provider.markCaptured(widget.student.dakhila, savePath);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.student.dakhila}.jpg সেভ হয়েছে ✓')),
+      await provider.markCaptured(widget.student.dakhila, savePath);
+      if (!mounted) return;
+
+      // রিভিউ দেখাই — ভুল ছবি হলে আবার তোলা যাবে;
+      // serial mode-এ পরের দাখিলায় সরাসরি যাওয়া যাবে।
+      final next = provider.isSerialMode
+          ? provider.getNext(widget.student.dakhila)
+          : null;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ReviewScreen(
+            student: widget.student,
+            imagePath: savePath,
+            next: next,
+          ),
+        ),
       );
-      if (provider.isSerialMode) {
-        final next = provider.getNext(widget.student.dakhila);
-        if (next != null) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => CameraScreen(student: next)),
-          );
-        } else {
-          Navigator.pop(context);
-        }
-      } else {
-        Navigator.pop(context);
-      }
     } catch (e) {
       debugPrint('CameraScreen Error: $e');
       if (mounted) {
@@ -157,6 +202,22 @@ class _CameraScreenState extends State<CameraScreen> {
   void dispose() {
     _controller?.dispose();
     super.dispose();
+  }
+
+  Widget _controlButton(IconData icon, VoidCallback? onTap,
+      {Color color = Colors.white}) {
+    return Material(
+      color: Colors.black54,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Icon(icon, color: color, size: 26),
+        ),
+      ),
+    );
   }
 
   /// init/permission ব্যর্থ হলে ব্যবহারবান্ধব error দৃশ্য + retry বাটন।
@@ -208,7 +269,7 @@ class _CameraScreenState extends State<CameraScreen> {
                     Positioned(
                       top: 16,
                       left: 16,
-                      right: 16,
+                      right: 72,
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         color: Colors.black54,
@@ -231,6 +292,27 @@ class _CameraScreenState extends State<CameraScreen> {
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 16,
+                      right: 8,
+                      child: Column(
+                        children: [
+                          if ((_cameras?.length ?? 0) > 1)
+                            _controlButton(Icons.switch_camera_outlined,
+                                _switching ? null : _switchCamera),
+                          if (_cameras != null &&
+                              _cameras![_cameraIndex].lensDirection !=
+                                  CameraLensDirection.front)
+                            _controlButton(
+                              _isTorchOn ? Icons.flash_on : Icons.flash_off,
+                              _toggleTorch,
+                              color: _isTorchOn
+                                  ? Colors.amberAccent
+                                  : Colors.white,
+                            ),
+                        ],
                       ),
                     ),
                     Positioned(

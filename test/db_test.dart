@@ -54,5 +54,23 @@ void main() {
     final s281 = updated.firstWhere((s) => s.dakhila == '281');
     expect(s281.isCaptured, 1);
     expect(s281.imagePath, endsWith('281.jpg'));
+
+    // ক্যাপচার রিসেট (delete ফিচার)
+    await DatabaseHelper.instance.clearImage('281');
+    final cleared =
+        await DatabaseHelper.instance.getAllStudents(forikFilter: '1');
+    final s281b = cleared.firstWhere((s) => s.dakhila == '281');
+    expect(s281b.isCaptured, 0);
+    expect(s281b.imagePath, isNull);
+
+    // ফরিক-ভিত্তিক স্ট্যাট
+    final stats = await DatabaseHelper.instance.getForikStats();
+    expect(stats, isNotEmpty);
+    final forik1Count =
+        (await DatabaseHelper.instance.getAllStudents(forikFilter: '1')).length;
+    final stat1 = stats.firstWhere((st) => st.forik == '1');
+    expect(stat1.total, forik1Count);
+    expect(stat1.captured, 0);
+    expect(stat1.remaining, stat1.total);
   });
 }

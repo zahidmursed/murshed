@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/forik_stat.dart';
 import '../models/student.dart';
 
 class DatabaseHelper {
@@ -115,6 +116,28 @@ class DatabaseHelper {
       orderBy: 'CAST(dakhila AS INTEGER) ASC',
     );
     return maps.map((m) => _mapToStudent(m)).toList();
+  }
+
+  /// ক্যাপচার রিসেট — ছবি ডিলিটের পর রেকর্ড আবার "বাকি" হয়।
+  Future<void> clearImage(String dakhila) async {
+    final db = await database;
+    await db.update(
+      'students',
+      {'image_path': null, 'is_captured': 0},
+      where: 'dakhila = ?',
+      whereArgs: [dakhila],
+    );
+  }
+
+  /// ফরিক-ভিত্তিক প্রগ্রেস (মোট/তোলা) — প্রগ্রেস chips-এর জন্য।
+  Future<List<ForikStat>> getForikStats() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT forik_no, COUNT(*) AS total, '
+      'COALESCE(SUM(is_captured), 0) AS captured FROM students '
+      'GROUP BY forik_no ORDER BY CAST(forik_no AS INTEGER) ASC',
+    );
+    return rows.map(ForikStat.fromRow).toList();
   }
 
   Student _mapToStudent(Map<String, dynamic> m) {

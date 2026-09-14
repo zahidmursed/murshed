@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../db/database_helper.dart';
+import '../models/forik_stat.dart';
 import '../models/student.dart';
 
 class StudentProvider extends ChangeNotifier {
@@ -17,7 +19,10 @@ class StudentProvider extends ChangeNotifier {
   Timer? _debounce;
   int _searchRequest = 0;
 
+  List<ForikStat> _forikStats = [];
+
   List<Student> get students => _filtered;
+  List<ForikStat> get forikStats => _forikStats;
   int get total => _filtered.length;
   int get captured => _filtered.where((s) => s.isCaptured == 1).length;
   int get remaining => total - captured;
@@ -29,6 +34,7 @@ class StudentProvider extends ChangeNotifier {
     _students = await DatabaseHelper.instance.getAllStudents(
       forikFilter: selectedForik.isEmpty ? null : selectedForik,
     );
+    _forikStats = await DatabaseHelper.instance.getForikStats();
     isLoading = false;
     if (_query.isEmpty) {
       _filtered = _students;
@@ -75,7 +81,7 @@ class StudentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void markCaptured(String dakhila, String path) {
+  Future<void> markCaptured(String dakhila, String path) async {
     final idx = _students.indexWhere((s) => s.dakhila == dakhila);
     if (idx != -1) {
       _students[idx].imagePath = path;
@@ -86,6 +92,33 @@ class StudentProvider extends ChangeNotifier {
       _filtered[fIdx].imagePath = path;
       _filtered[fIdx].isCaptured = 1;
     }
+    _forikStats = await DatabaseHelper.instance.getForikStats();
+    notifyListeners();
+  }
+
+  /// ছবির ফাইল ডিলিট + রেকর্ড রিসেট (viewer-এর delete অ্যাকশন)।
+  Future<void> clearCaptured(String dakhila) async {
+    final sources = [..._students, ..._filtered];
+    for (final s in sources) {
+      if (s.dakhila == dakhila && s.imagePath != null) {
+        try {
+          final f = File(s.imagePath!);
+          if (await f.exists()) await f.delete();
+        } catch (e) {
+          debugPrint('Image delete failed: $e');
+        }
+        break;
+      }
+    }
+    await DatabaseHelper.instance.clearImage(dakhila);
+    for (final list in [_students, _filtered]) {
+      final idx = list.indexWhere((s) => s.dakhila == dakhila);
+      if (idx != -1) {
+        list[idx].imagePath = null;
+        list[idx].isCaptured = 0;
+      }
+    }
+    _forikStats = await DatabaseHelper.instance.getForikStats();
     notifyListeners();
   }
 

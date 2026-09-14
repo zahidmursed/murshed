@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/student_provider.dart';
 import 'camera_screen.dart';
+import 'image_viewer_screen.dart';
 
 class ListScreen extends StatefulWidget {
   const ListScreen({super.key});
@@ -58,6 +62,31 @@ class _ListScreenState extends State<ListScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  if (provider.selectedForik.isEmpty &&
+                      provider.forikStats.isNotEmpty)
+                    SizedBox(
+                      height: 44,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: provider.forikStats.length,
+                        itemBuilder: (context, i) {
+                          final st = provider.forikStats[i];
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ActionChip(
+                              label: Text(
+                                  'ফরিক ${st.forik}: ${st.captured}/${st.total}'),
+                              backgroundColor: st.isComplete
+                                  ? Colors.green.shade100
+                                  : (st.captured > 0
+                                      ? Colors.orange.shade100
+                                      : null),
+                              onPressed: () => provider.setForik(st.forik),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                   TextField(
                     controller: _searchCtrl,
                     decoration: const InputDecoration(
@@ -109,18 +138,35 @@ class _ListScreenState extends State<ListScreen> {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, idx) {
                   final s = provider.students[idx];
+                  final captured = s.isCaptured == 1 && s.imagePath != null;
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor:
-                          s.isCaptured == 1 ? Colors.green : Colors.grey,
-                      child: Icon(
-                          s.isCaptured == 1 ? Icons.check : Icons.person,
-                          color: Colors.white),
-                    ),
+                    leading: captured
+                        ? CircleAvatar(
+                            backgroundImage: FileImage(File(s.imagePath!)),
+                            onBackgroundImageError: (_, __) {},
+                            backgroundColor: Colors.grey,
+                          )
+                        : const CircleAvatar(
+                            backgroundColor: Colors.grey,
+                            child: Icon(Icons.person, color: Colors.white),
+                          ),
                     title: Text('${s.dakhila} - ${s.stuName}',
                         style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(
                         '${s.className} | ফরিক ${s.forikNo} | ${s.fatherName}'),
+                    onTap: () {
+                      if (captured) {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => ImageViewerScreen(student: s)));
+                      } else {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => CameraScreen(student: s)));
+                      }
+                    },
                     trailing: IconButton(
                       icon: const Icon(Icons.camera_alt, color: Colors.teal),
                       onPressed: () {

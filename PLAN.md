@@ -106,7 +106,14 @@ DB update (`is_captured=1`) → serial mode হলে `pushReplacement` পর�
 
 **Validation:** `flutter test` সবুজ + `flutter analyze` পরিষ্কার।
 
-### Phase 3 — UX উন্নতি (≈ ১–২ দিন)
+### Phase 3 — UX উন্নতি (≈ ১–২ দিন) — ✅ 3.1–3.4 সম্পন্ন (2026-09-14), 3.5 ঐচ্ছিক বাকি
+
+> **বাস্তবায়নের ফলাফল:** নতুন ফাইল — `lib/models/forik_stat.dart`,
+> `lib/screens/review_screen.dart`, `lib/screens/image_viewer_screen.dart`।
+> লিস্টে ছবির thumbnail + ট্যাপে full-screen viewer (retake/delete — ফাইলসহ),
+> সেভের পর review screen ("আবার তুলুন" / "পরের: XXX"), front/back switch + torch,
+> ফরিকভিত্তিক progress chips (ট্যাপ = ফিল্টার)। DB-তে `clearImage` + `getForikStats`
+> যোগ হয়েছে (টেস্টে কভারড)। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
 | # | কাজ |
 |---|---|
 | 3.1 | লিস্টে তোলা ছবির thumbnail (Image.file) + full-screen viewer + delete |
