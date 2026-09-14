@@ -144,7 +144,15 @@ viewer-এও retake/delete আছে।
 | 3.4 | ফরিক-ভিত্তিক প্রগ্রেস (যেমন "ফরিক ৩: 40/120") |
 | 3.5 | (ঐচ্ছিক) share_plus দিয়ে ছবি/ফোল্ডার share, বা MediaStore-এ Pictures/DakhilaCamera-তে কপি |
 
-### Phase 4 — রিলিজ প্রস্তুতি (≈ আধা দিন)
+### Phase 4 — রিলিজ প্রস্তুতি (≈ আধা দিন) — 🔶 আংশিক: v1.1.0+2 APK তৈরি (2026-09-14)
+
+> **সম্পন্ন:** `flutter build apk --release` → `build/app/outputs/flutter-apk/app-release.apk`
+> (53 MB) — প্রোজেক্ট রুটে কপি: `DakhilaCamera-v1.1.0-release.apk`। ভার্সন বাম্প
+> 1.0.0+1 → **1.1.0+2**। বিল্ড ফিক্স: Windows-এ Kotlin incremental cache lock error →
+> `android/gradle.properties`-এ `kotlin.incremental=false`।
+> **বাকি:** applicationId rename (`com.example...` এখনও), release keystore/signing
+> (এই APK debug key-এ signed — শুধু টেস্ট/সরাসরি ইনস্টলের জন্য; Play Store-এর জন্য নয়),
+> app icon, README আপডেট।
 | # | কাজ |
 |---|---|
 | 4.1 | applicationId rename (যেমন `com.madrasa.dakhila_camera`) + app icon |
