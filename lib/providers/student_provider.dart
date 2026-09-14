@@ -7,8 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/database_helper.dart';
+import '../models/document.dart';
 import '../models/forik_stat.dart';
 import '../models/student.dart';
+import '../services/storage_service.dart';
 import '../utils/excel_parser.dart';
 import '../utils/gallery_saver.dart';
 
@@ -47,11 +49,24 @@ class StudentProvider extends ChangeNotifier {
 
   List<ForikStat> _forikStats = [];
 
+  /// Phase 6: dakhila → (DocType → StudentDocument) — অনুপস্থিত = বাকি
+  Map<String, Map<DocType, StudentDocument>> _docs = {};
+
   List<Student> get students => _filtered;
   List<ForikStat> get forikStats => _forikStats;
   int get total => _filtered.length;
   int get captured => _filtered.where((s) => s.isCaptured == 1).length;
   int get remaining => total - captured;
+
+  /// Phase 6: ডকুমেন্ট হেল্পার
+  StudentDocument? docOf(String dakhila, DocType type) => _docs[dakhila]?[type];
+
+  int docCountOf(String dakhila) => _docs[dakhila]?.length ?? 0;
+
+  StudentWithDocs withDocs(Student s) => StudentWithDocs(
+        student: s,
+        docs: {for (final t in DocType.values) t: _docs[s.dakhila]?[t]},
+      );
 
   Future<void> load() async {
     isLoading = true;
@@ -66,6 +81,7 @@ class StudentProvider extends ChangeNotifier {
       forikFilter: selectedForik.isEmpty ? null : selectedForik,
       classFilter: classFilter,
     );
+    _docs = await DatabaseHelper.instance.getAllDocumentsMap();
     _forikStats = await DatabaseHelper.instance.getForikStats(
       classFilter: classFilter,
     );
@@ -157,6 +173,18 @@ class StudentProvider extends ChangeNotifier {
       _filtered[fIdx].imagePath = path;
       _filtered[fIdx].isCaptured = 1;
     }
+    // 3-Doc: PHOTO doc মেমোরিতে আপডেট
+    _docs.putIfAbsent(dakhila, () => {})[DocType.PHOTO] = StudentDocument(
+      dakhila: dakhila,
+      type: DocType.PHOTO,
+      filePath: path,
+      ext: path.contains('.') ? path.split('.').last.toLowerCase() : 'jpg',
+      status: 1,
+    );
+    for (final list in [_students, _filtered]) {
+      final i = list.indexWhere((s) => s.dakhila == dakhila);
+      if (i != -1) list[i].totalDocs = _docs[dakhila]?.length ?? 0;
+    }
     _forikStats = await DatabaseHelper.instance.getForikStats();
     notifyListeners();
   }
@@ -191,11 +219,13 @@ class StudentProvider extends ChangeNotifier {
     await GallerySaver.deleteFromGallery(fileName: '$dakhila.jpg');
 
     await DatabaseHelper.instance.clearImage(dakhila);
+    _docs[dakhila]?.remove(DocType.PHOTO);
     for (final list in [_students, _filtered]) {
       final idx = list.indexWhere((s) => s.dakhila == dakhila);
       if (idx != -1) {
         list[idx].imagePath = null;
         list[idx].isCaptured = 0;
+        list[idx].totalDocs = _docs[dakhila]?.length ?? 0;
       }
     }
     _forikStats = await DatabaseHelper.instance.getForikStats();
@@ -249,11 +279,19 @@ class StudentProvider extends ChangeNotifier {
       return;
     }
     await DatabaseHelper.instance.updateImage(dakhila, dest);
+    _docs.putIfAbsent(dakhila, () => {})[DocType.PHOTO] = StudentDocument(
+      dakhila: dakhila,
+      type: DocType.PHOTO,
+      filePath: dest,
+      ext: 'jpg',
+      status: 1,
+    );
     for (final list in [_students, _filtered]) {
       final idx = list.indexWhere((s) => s.dakhila == dakhila);
       if (idx != -1) {
         list[idx].imagePath = dest;
         list[idx].isCaptured = 1;
+        list[idx].totalDocs = _docs[dakhila]?.length ?? 0;
       }
     }
     _forikStats = await DatabaseHelper.instance.getForikStats();
@@ -293,6 +331,13 @@ class StudentProvider extends ChangeNotifier {
       );
       if (ok) {
         await DatabaseHelper.instance.updateImage(s.dakhila, dest);
+        _docs.putIfAbsent(s.dakhila, () => {})[DocType.PHOTO] = StudentDocument(
+          dakhila: s.dakhila,
+          type: DocType.PHOTO,
+          filePath: dest,
+          ext: 'jpg',
+          status: 1,
+        );
         for (final list in [_students, _filtered]) {
           final idx = list.indexWhere((x) => x.dakhila == s.dakhila);
           if (idx != -1) {
@@ -310,6 +355,55 @@ class StudentProvider extends ChangeNotifier {
       notifyListeners();
     }
     return restored;
+  }
+
+  /// Phase 6: পুরনো flat ছবিগুলো v2 ফোল্ডার-লেআউটে সাজানো
+  /// (copy → DB update → পুরনো ফাইল delete; ব্যর্থ হলে পুরনোটা অক্ষত)।
+  Future<int> migrateStorageToV2({
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final all = await DatabaseHelper.instance.getAllStudents();
+    final targets = all
+        .where((s) =>
+            s.isCaptured == 1 &&
+            s.imagePath != null &&
+            !s.imagePath!.contains('/v2/') &&
+            File(s.imagePath!).existsSync())
+        .toList();
+    var done = 0;
+    var moved = 0;
+    for (final s in targets) {
+      final newPath = await StorageService.copyToStudentFolder(
+        className: s.className,
+        forik: s.forikNo,
+        dakhila: s.dakhila,
+        type: DocType.PHOTO,
+        oldPath: s.imagePath!,
+      );
+      if (newPath != null) {
+        await DatabaseHelper.instance.updateImage(s.dakhila, newPath);
+        for (final list in [_students, _filtered]) {
+          final i = list.indexWhere((x) => x.dakhila == s.dakhila);
+          if (i != -1) list[i].imagePath = newPath;
+        }
+        _docs[s.dakhila]?[DocType.PHOTO] = StudentDocument(
+          dakhila: s.dakhila,
+          type: DocType.PHOTO,
+          filePath: newPath,
+          ext: 'jpg',
+          status: 1,
+        );
+        // DB আপডেট সফল — এখন পুরনো flat ফাইল মুছে ফেলা নিরাপদ
+        try {
+          final old = File(s.imagePath!);
+          if (await old.exists()) await old.delete();
+        } catch (_) {}
+        moved++;
+      }
+      done++;
+      onProgress?.call(done, targets.length);
+    }
+    return moved;
   }
 
   /// Settings: সব তোলা ছবি গ্যালারিতে (Pictures/DakhilaCamera) ব্যাকআপ —

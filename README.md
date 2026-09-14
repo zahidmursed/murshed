@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.6.1+8 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.7.0+9 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -54,6 +54,16 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - এক্সপোর্ট শেষে সরাসরি **শেয়ার শিট** খোলে (WhatsApp/Gmail/PC)
 - স্কোপ = মূল লিস্টের বর্তমান ক্লাস/ফরিক ফিল্টার
 
+### 📚 3-Document System (Phase 6 — v1.7.0)
+- **একজন ছাত্র = ৩টি স্লট**: 📷 PHOTO • 📜 BIRTH (জন্মসনদ) • 📝 FORM (আবেদন ফরম)
+- লিস্টে **৩-ডট ইনডিকেটর** ●●○ + `x/3 ডক` প্রগ্রেস (সবুজ = সম্পন্ন)
+- DB **v4**: `documents` টেবিল (UNIQUE(dakhila, doc_type)) + `students`-এ
+  `marhala`/`exam_year`/`total_docs` কলাম — পুরনো ছবি অটো-মাইগ্রেট (copy-not-move)
+- `services/storage_service.dart` — ছাত্র-প্রতি ফোল্ডার লেআউট
+  `DakhilaCamera/v2/<ক্লাস>/Forik_N/<দাখিলা>/`; ⚙️ সেটিংসে **"স্টোরেজ সাজান"** বাটনে
+  পুরনো flat ছবি নতুন লেআউটে মাইগ্রেট
+- BIRTH/FORM যোগ করা হবে Phase 7-এ (Document Dashboard + Scanner)
+
 ### 💾 স্টোরেজ
 - সেভ হয়: `Android/data/com.madrasa.dakhilacamera/files/DakhilaCamera/{দাখিলা}.jpg`
 - **গ্যালারিতেও সেভ** — ফোনের গ্যালারির `Pictures/DakhilaCamera`-তেও যায় (MediaStore);
@@ -77,8 +87,8 @@ flutter build apk --release  # APK তৈরি (universal)
 flutter build apk --release --split-per-abi  # ছোট APK (ABI অনুযায়ী আলাদা, ~16-20MB)
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.6.1-arm64-release.apk` (~20.2MB,
-  আধুনিক ফোন) ও `DakhilaCamera-v1.6.1-armv7-release.apk` (পুরনো ফোন) — debug-signed
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.7.0-arm64-release.apk` (~20.2MB,
+  আধুনিক ফোন) ও `DakhilaCamera-v1.7.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
 

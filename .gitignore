@@ -49,3 +49,9 @@ app.*.map.json
 
 # Built APK copies at repo root
 /*.apk
+
+# local JDK copy (jvm.cfg fix)
+.jdk-jbr/
+
+# local JDK (broken AS jbr workaround)
+.jdk/

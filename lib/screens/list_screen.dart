@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/document.dart';
 import '../providers/student_provider.dart';
 import 'camera_screen.dart';
 import 'export_screen.dart';
@@ -179,6 +180,7 @@ class _ListScreenState extends State<ListScreen> {
                 itemBuilder: (context, idx) {
                   final s = provider.students[idx];
                   final captured = s.isCaptured == 1 && s.imagePath != null;
+                  final withDocs = provider.withDocs(s);
                   return ListTile(
                     leading: captured
                         ? CircleAvatar(
@@ -192,8 +194,36 @@ class _ListScreenState extends State<ListScreen> {
                           ),
                     title: Text('${s.dakhila} - ${s.stuName}',
                         style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(
-                        '${s.className} | ফরিক ${s.forikNo} | ${s.fatherName}'),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            '${s.className} | ফরিক ${s.forikNo} | ${s.fatherName}'),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            for (final t in DocType.values)
+                              Container(
+                                width: 10,
+                                height: 10,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: BoxDecoration(
+                                  color: withDocs.hasDoc(t)
+                                      ? Colors.green
+                                      : Colors.grey.shade400,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${withDocs.completedCount}/3 ডক',
+                              style: const TextStyle(
+                                  fontSize: 11, color: Colors.black54),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                     onTap: () {
                       if (captured) {
                         Navigator.push(

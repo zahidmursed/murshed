@@ -20,8 +20,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _importing = false;
   bool _backingUp = false;
   bool _recovering = false;
+  bool _migrating = false;
   String _backupStatus = '';
   String _recoverStatus = '';
+  String _migrateStatus = '';
   String _folderPath = '';
 
   @override
@@ -120,6 +122,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ডাটা রিসেট সম্পন্ন')),
       );
+    }
+  }
+
+  /// Phase 6: পুরনো flat ছবিগুলো v2 ফোল্ডার-লেআউটে সাজানো।
+  Future<void> _migrateStorage() async {
+    final provider = context.read<StudentProvider>();
+    setState(() {
+      _migrating = true;
+      _migrateStatus = 'স্ক্যান হচ্ছে...';
+    });
+    try {
+      final moved = await provider.migrateStorageToV2(
+        onProgress: (done, total) {
+          if (mounted) {
+            setState(() => _migrateStatus = 'সাজানো হচ্ছে... $done/$total');
+          }
+        },
+      );
+      if (!mounted) return;
+      setState(() => _migrateStatus = 'শেষ — $moved টি ছবি নতুন ফোল্ডারে');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$moved টি ছবি v2 ফোল্ডারে সাজানো হয়েছে ✓')),
+      );
+    } catch (e) {
+      debugPrint('Migrate failed: $e');
+      if (mounted) setState(() => _migrateStatus = 'ব্যর্থ — আবার চেষ্টা করুন');
+    } finally {
+      if (mounted) setState(() => _migrating = false);
     }
   }
 
@@ -292,6 +322,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               '(uninstall করলেও থাকবে)'
                           : _backupStatus),
                       onTap: _backingUp ? null : _backupAll,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: _migrating
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.drive_file_move,
+                              color: Colors.deepPurple),
+                      title: const Text('স্টোরেজ সাজান (v2 ফোল্ডার)'),
+                      subtitle: Text(_migrateStatus.isEmpty
+                          ? 'পুরনো flat ছবিগুলো ছাত্র-প্রতি ফোল্ডারে গুছিয়ে দেবে '
+                              '(ক্লাস/ফরিক/দাখিলা)'
+                          : _migrateStatus),
+                      onTap:
+                          (_migrating || _backingUp) ? null : _migrateStorage,
                     ),
                     const Divider(height: 1),
                     ListTile(

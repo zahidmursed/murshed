@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/document.dart';
 import '../models/forik_stat.dart';
 import '../models/student.dart';
 
@@ -23,7 +24,7 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     return await openDatabase(path,
-        version: 2, onCreate: _createDB, onUpgrade: _upgradeDB);
+        version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future _createDB(Database db, int version) async {
@@ -35,17 +36,73 @@ class DatabaseHelper {
       forik_no TEXT,
       father_name TEXT,
       dakhila_year TEXT,
+      marhala TEXT,
+      exam_year TEXT,
       image_path TEXT,
-      is_captured INTEGER DEFAULT 0
+      is_captured INTEGER DEFAULT 0,
+      total_docs INTEGER DEFAULT 0
     )
     ''');
     await _createIndexes(db);
+    await _createDocumentsTable(db);
   }
 
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // ফরিক ফিল্টার/সার্চ দ্রুত করতে index
       await _createIndexes(db);
+    }
+    if (oldVersion < 4) {
+      await _upgradeToV4(db);
+    }
+  }
+
+  /// v2/v3 → v4: নতুন কলাম + documents টেবিল + পুরনো ছবি PHOTO doc হিসেবে
+  /// মাইগ্রেট (copy-not-move, idempotent — INSERT OR IGNORE)।
+  Future _upgradeToV4(Database db) async {
+    await _addColumnIfMissing(db, 'students', 'marhala TEXT');
+    await _addColumnIfMissing(db, 'students', 'exam_year TEXT');
+    await _addColumnIfMissing(db, 'students', 'total_docs INTEGER DEFAULT 0');
+    await _createDocumentsTable(db);
+    await db.execute('''
+    INSERT OR IGNORE INTO documents
+      (dakhila, doc_type, file_path, file_ext, mime_type, status, updated_at)
+    SELECT dakhila, 'PHOTO', image_path, 'jpg', 'image/jpeg', 1, NULL
+    FROM students
+    WHERE image_path IS NOT NULL AND image_path != ''
+    ''');
+    await db.execute(
+        'UPDATE students SET total_docs = (SELECT COUNT(*) FROM documents '
+        'WHERE documents.dakhila = students.dakhila)');
+  }
+
+  Future _createDocumentsTable(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS documents(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dakhila TEXT NOT NULL,
+      doc_type TEXT NOT NULL CHECK(doc_type IN ('PHOTO','BIRTH','FORM')),
+      file_path TEXT NOT NULL,
+      file_ext TEXT NOT NULL,
+      mime_type TEXT,
+      file_size INTEGER,
+      status INTEGER DEFAULT 1,
+      updated_at TEXT,
+      FOREIGN KEY(dakhila) REFERENCES students(dakhila) ON DELETE CASCADE,
+      UNIQUE(dakhila, doc_type)
+    )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_doc_dakhila_type ON documents(dakhila, doc_type)');
+  }
+
+  Future _addColumnIfMissing(
+      Database db, String table, String columnDef) async {
+    final cols = await db.rawQuery('PRAGMA table_info($table)');
+    final names = cols.map((c) => (c['name'] as String?) ?? '').toSet();
+    final name = columnDef.split(' ').first;
+    if (!names.contains(name)) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $columnDef');
     }
   }
 
@@ -103,6 +160,54 @@ class DatabaseHelper {
       where: 'dakhila = ?',
       whereArgs: [dakhila],
     );
+    // 3-Doc: PHOTO ডকুমেন্ট হিসেবেও সেভ (total_docs recalc সহ)
+    final ext = path.contains('.') ? path.split('.').last.toLowerCase() : 'jpg';
+    await upsertDocument(StudentDocument(
+      dakhila: dakhila,
+      type: DocType.PHOTO,
+      filePath: path,
+      ext: ext,
+      mimeType: 'image/jpeg',
+      status: 1,
+    ));
+  }
+
+  /// ডকুমেন্ট INSERT OR REPLACE + students.total_docs recalc।
+  Future<void> upsertDocument(StudentDocument doc) async {
+    final db = await database;
+    await db.insert('documents', doc.toRow(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _recalcTotalDocs(db, doc.dakhila);
+  }
+
+  /// নির্দিষ্ট টাইপের ডকুমেন্ট মুছে ফেলে + total_docs recalc।
+  Future<void> deleteDocument(String dakhila, DocType type) async {
+    final db = await database;
+    await db.delete('documents',
+        where: 'dakhila = ? AND doc_type = ?', whereArgs: [dakhila, type.name]);
+    await _recalcTotalDocs(db, dakhila);
+  }
+
+  /// সব ডকুমেন্ট: dakhila → (DocType → StudentDocument)।
+  Future<Map<String, Map<DocType, StudentDocument>>>
+      getAllDocumentsMap() async {
+    final db = await database;
+    final rows = await db.query('documents');
+    final map = <String, Map<DocType, StudentDocument>>{};
+    for (final r in rows) {
+      final doc = StudentDocument.fromRow(r);
+      map.putIfAbsent(doc.dakhila, () => {})[doc.type] = doc;
+    }
+    return map;
+  }
+
+  Future<void> _recalcTotalDocs(Database db, String dakhila) async {
+    final count = Sqflite.firstIntValue(await db.rawQuery(
+            'SELECT COUNT(*) FROM documents WHERE dakhila = ? AND status = 1',
+            [dakhila])) ??
+        0;
+    await db.update('students', {'total_docs': count},
+        where: 'dakhila = ?', whereArgs: [dakhila]);
   }
 
   /// [forikFilter]/[classFilter] দিলে সেই সীমার মধ্যেই সার্চ হবে।
@@ -131,12 +236,17 @@ class DatabaseHelper {
   /// ক্যাপচার রিসেট — ছবি ডিলিটের পর রেকর্ড আবার "বাকি" হয়।
   Future<void> clearImage(String dakhila) async {
     final db = await database;
+    // PHOTO ডকুমেন্টও বাদ (total_docs recalc সহ)
+    await db.delete('documents',
+        where: 'dakhila = ? AND doc_type = ?',
+        whereArgs: [dakhila, DocType.PHOTO.name]);
     await db.update(
       'students',
       {'image_path': null, 'is_captured': 0},
       where: 'dakhila = ?',
       whereArgs: [dakhila],
     );
+    await _recalcTotalDocs(db, dakhila);
   }
 
   /// ফরিক-ভিত্তিক প্রগ্রেস (মোট/তোলা) — প্রগ্রেস chips-এর জন্য।
@@ -220,6 +330,12 @@ class DatabaseHelper {
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
+      // নতুন ডেটায় নেই এমন দাখিলার documents বাদ + total_docs recalc
+      await txn.execute(
+          'DELETE FROM documents WHERE dakhila NOT IN (SELECT dakhila FROM students)');
+      await txn.execute(
+          'UPDATE students SET total_docs = (SELECT COUNT(*) FROM documents '
+          'WHERE documents.dakhila = students.dakhila)');
       imported = maps.length;
     });
     return imported;
@@ -239,8 +355,11 @@ class DatabaseHelper {
       forikNo: (m['forik_no'] as String?) ?? '',
       fatherName: (m['father_name'] as String?) ?? '',
       dakhilaYear: (m['dakhila_year'] as String?) ?? '2025',
+      marhala: (m['marhala'] as String?) ?? '',
+      examYear: (m['exam_year'] as String?) ?? '',
       imagePath: m['image_path'] as String?,
       isCaptured: (m['is_captured'] as int?) ?? 0,
+      totalDocs: (m['total_docs'] as int?) ?? 0,
     );
   }
 
