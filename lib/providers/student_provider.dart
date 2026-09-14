@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../db/database_helper.dart';
 import '../models/forik_stat.dart';
@@ -154,6 +155,58 @@ class StudentProvider extends ChangeNotifier {
     }
     _forikStats = await DatabaseHelper.instance.getForikStats();
     notifyListeners();
+  }
+
+  /// Fresh install/ফাইল হারানোর পর গ্যালারির কপি থেকে তোলা ছবি ফিরিয়ে আনে।
+  /// দাখিলা নম্বর মিলিয়ে Pictures/DakhilaCamera → অ্যাপ ডিরেক্টরি কপি করে।
+  /// রিটার্ন: রিকভার হওয়া ছবির সংখ্যা।
+  Future<int> recoverFromGallery({
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final names = (await GallerySaver.listGalleryPhotos()).toSet();
+    final all = await DatabaseHelper.instance.getAllStudents();
+    final targets = all.where((s) {
+      final name = '${s.dakhila}.jpg';
+      if (!names.contains(name)) return false;
+      // এমনিতে তোলা এবং ফাইল জায়গামতো আছে → দরকার নেই
+      if (s.isCaptured == 1 &&
+          s.imagePath != null &&
+          File(s.imagePath!).existsSync()) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    var done = 0;
+    var restored = 0;
+    for (final s in targets) {
+      final name = '${s.dakhila}.jpg';
+      final appDir = await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final dest = '${appDir.path}/DakhilaCamera/$name';
+      final ok = await GallerySaver.copyGalleryPhoto(
+        fileName: name,
+        destPath: dest,
+      );
+      if (ok) {
+        await DatabaseHelper.instance.updateImage(s.dakhila, dest);
+        for (final list in [_students, _filtered]) {
+          final idx = list.indexWhere((x) => x.dakhila == s.dakhila);
+          if (idx != -1) {
+            list[idx].imagePath = dest;
+            list[idx].isCaptured = 1;
+          }
+        }
+        restored++;
+      }
+      done++;
+      onProgress?.call(done, targets.length);
+    }
+    if (restored > 0) {
+      _forikStats = await DatabaseHelper.instance.getForikStats();
+      notifyListeners();
+    }
+    return restored;
   }
 
   /// Settings: সব তোলা ছবি গ্যালারিতে (Pictures/DakhilaCamera) ব্যাকআপ —

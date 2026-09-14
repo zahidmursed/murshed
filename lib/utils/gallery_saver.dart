@@ -48,6 +48,39 @@ class GallerySaver {
     }
   }
 
+  /// গ্যালারির Pictures/DakhilaCamera-তে থাকা ফাইলনামগুলো (পুরনো ছবি রিকভারি)।
+  /// PlatformException (PERMISSION_DENIED) propagate হয় — UI দেখাবে।
+  static Future<List<String>> listGalleryPhotos() async {
+    try {
+      final names =
+          await _channel.invokeMethod<List<dynamic>>('listGalleryPhotos');
+      return names?.cast<String>() ?? const [];
+    } on MissingPluginException {
+      debugPrint('GallerySaver: platform channel not available');
+      return const [];
+    }
+  }
+
+  /// গ্যালারির কপি থেকে অ্যাপ ডিরেক্টরিতে ফাইল ফেরত আনে (রিকভারি)।
+  static Future<bool> copyGalleryPhoto({
+    required String fileName,
+    required String destPath,
+  }) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('copyGalleryPhoto', {
+        'fileName': fileName,
+        'destPath': destPath,
+      });
+      return ok ?? false;
+    } on PlatformException catch (e) {
+      debugPrint('Gallery copy failed: ${e.code} ${e.message}');
+      return false;
+    } on MissingPluginException {
+      debugPrint('GallerySaver: platform channel not available');
+      return false;
+    }
+  }
+
   /// যেকোনো এক্সপোর্ট ফাইল (ZIP/PDF/CSV) সিস্টেম শেয়ার শিটে পাঠায়
   /// (native FileProvider intent — MainActivity.kt)।
   static Future<bool> shareFile({

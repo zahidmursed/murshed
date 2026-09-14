@@ -4,6 +4,9 @@
     <!-- ক্যামেরা permission -->
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- পুরনো ছবি রিকভারি: গ্যালারির Pictures/DakhilaCamera স্ক্যান (Android 13+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
     <!-- ছবি সেভের জন্য Storage permission (Android 9 এবং নিচে) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>

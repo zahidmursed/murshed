@@ -19,7 +19,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _importing = false;
   bool _backingUp = false;
+  bool _recovering = false;
   String _backupStatus = '';
+  String _recoverStatus = '';
   String _folderPath = '';
 
   @override
@@ -99,6 +101,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ডাটা রিসেট সম্পন্ন')),
       );
+    }
+  }
+
+  /// Fresh install-এর পর গ্যালারি থেকে পুরনো তোলা ছবি ফিরিয়ে আনে।
+  Future<void> _recover() async {
+    final provider = context.read<StudentProvider>();
+    setState(() {
+      _recovering = true;
+      _recoverStatus = 'স্ক্যান হচ্ছে...';
+    });
+    try {
+      final restored = await provider.recoverFromGallery(
+        onProgress: (done, total) {
+          if (mounted) {
+            setState(() => _recoverStatus = 'ফেরানো হচ্ছে... $done/$total');
+          }
+        },
+      );
+      if (!mounted) return;
+      setState(() => _recoverStatus = 'শেষ — $restored টি ছবি ফিরে এসেছে');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$restored টি ছবি রিকভারি হয়েছে ✓')),
+      );
+    } on PlatformException catch (e) {
+      debugPrint('Recover failed: ${e.code} ${e.message}');
+      if (mounted) {
+        setState(() => _recoverStatus = e.code == 'PERMISSION_DENIED'
+            ? 'স্টোরেজ অনুমতি দিন, তারপর আবার চাপুন'
+            : 'ব্যর্থ: ${e.message}');
+      }
+    } catch (e) {
+      debugPrint('Recover failed: $e');
+      if (mounted) setState(() => _recoverStatus = 'ব্যর্থ — আবার চেষ্টা করুন');
+    } finally {
+      if (mounted) setState(() => _recovering = false);
     }
   }
 
@@ -197,6 +234,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           '(uninstall করলেও থাকবে)'
                       : _backupStatus),
                   onTap: _backingUp ? null : _backupAll,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: _recovering
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.restore, color: Colors.indigo),
+                  title: const Text('পুরনো ছবি রিকভারি (গ্যালারি থেকে)'),
+                  subtitle: Text(_recoverStatus.isEmpty
+                      ? 'Fresh install/আপডেটের পর গ্যালারির কপি থেকে তোলা ছবি '
+                          'ফিরিয়ে আনে — দাখিলা নম্বর মিলিয়ে'
+                      : _recoverStatus),
+                  onTap: (_recovering || _backingUp) ? null : _recover,
                 ),
                 const Divider(height: 1),
                 ListTile(

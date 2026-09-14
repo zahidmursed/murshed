@@ -76,8 +76,9 @@ lib/
 - 4.1 → risky flip না করে **dual-write + Settings-এ "সব ছবি গ্যালারিতে ব্যাকআপ" বাটন** (idempotent, progress সহ) — Pictures কপি uninstall-এও টিকে থাকে
 - 4.2 ✅ applicationId = `com.madrasa.dakhilacamera` (namespace + MainActivity-ও সরানো হয়েছে) — **পুরনো ইনস্টলে আপডেট হবে না, fresh install লাগবে**
 - 4.3 ⏳ স্থগিত (ব্যবহারকারীর সিদ্ধান্ত) — বহু ইউজার বিতরণের আগে অবশ্যই করতে হবে
-- 4.4 ⏳ লোগো অপেক্ষমান — দিলে `flutter_launcher_icons` দিয়ে সেট হবে
+- 4.4 ✅ App icon: `jamiaP.png` থেকে `flutter_launcher_icons` দিয়ে সব সাইজ + adaptive icon (tool/gen_icon.dart দিয়ে foreground safe-zone প্রসেস)
 - 4.5 ✅ split-per-abi + minify + shrinkResources: **arm64 18.5MB / armv7 16.2MB** (target <25MB পূরণ); JPEG quality 90 রাখা হয়েছে (প্রিন্ট কোয়ালিটি)
+- ➕ **Fresh install রিকভারি (v1.5.1):** ⚙️ "পুরনো ছবি রিকভারি (গ্যালারি থেকে)" — Pictures/DakhilaCamera স্ক্যান করে দাখিলা নম্বর মিলিয়ে তোলা ছবি অ্যাপে ফিরিয়ে আনে (READ_MEDIA_IMAGES runtime permission সহ) — appId rename-এর ঝুঁকি পুরো মিটে গেছে
 
 ### Phase 5A - OFFICE SUPER FEATURES (আগামী 2 দিন) — v1.5.0 (Most Valuable)
 

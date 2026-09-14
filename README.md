@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.5.0+5 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.5.1+6 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -53,6 +53,7 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - **গ্যালারিতেও সেভ** — ফোনের গ্যালারির `Pictures/DakhilaCamera`-তেও যায় (MediaStore);
   retake-এ replace হয়, delete-এ গ্যালারি কপিও মুছে যায় (Android 10+ permission-মুক্ত)
 - **গ্যালারি ব্যাকআপ বাটন** — ⚙️ সেটিংসে "সব ছবি গ্যালারিতে ব্যাকআপ" (পুরনো ছবিগুলো এক ক্লিকে, বারবার চালানো নিরাপদ)
+- **পুরনো ছবি রিকভারি** — ⚙️ সেটিংসে: fresh install/আপডেটের পর গ্যালারির `Pictures/DakhilaCamera` কপি থেকে দাখিলা নম্বর মিলিয়ে তোলা ছবি ফিরিয়ে আনে (storage permission সহ)
 - ⚙️ সেটিংসে **[ফোল্ডার খুলুন]** (সিস্টেম ফাইল ম্যানেজার) + **[পাথ কপি]** ফলব্যাক
 - শুধু CAMERA permission; ছবি/ডেটা কোথাও পাঠানো হয় না
 
@@ -70,8 +71,8 @@ flutter build apk --release  # APK তৈরি (universal)
 flutter build apk --release --split-per-abi  # ছোট APK (ABI অনুযায়ী আলাদা, ~16-20MB)
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.5.0-arm64-release.apk` (~19.2MB,
-  আধুনিক ফোন) ও `DakhilaCamera-v1.5.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.5.1-arm64-release.apk` (~19.4MB,
+  আধুনিক ফোন) ও `DakhilaCamera-v1.5.1-armv7-release.apk` (পুরনো ফোন) — debug-signed
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
 

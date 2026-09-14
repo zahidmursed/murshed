@@ -2,7 +2,7 @@
 name: dakhila_camera
 description: Camera app that saves image by DAKHILA value
 publish_to: 'none'
-version: 1.5.0+5
+version: 1.5.1+6
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -28,8 +28,16 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
   sqflite_common_ffi: ^2.4.3
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/Data_basic.json
+
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#00897B"
+  adaptive_icon_foreground: "assets/icon_foreground.png"
