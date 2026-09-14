@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -26,7 +27,6 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _saving = false;
   bool _switching = false;
   bool _isTorchOn = false;
-  bool _showGrid = true;
   int _cameraIndex = 0;
   double _minZoom = 1.0;
   double _maxZoom = 1.0;
@@ -226,6 +226,10 @@ class _CameraScreenState extends State<CameraScreen> {
       );
       if (!mounted) return;
 
+      // ক্যাপচার ফিডব্যাক: হ্যাপটিক + সিস্টেম সাউন্ড
+      HapticFeedback.mediumImpact();
+      SystemSound.play(SystemSoundType.alert);
+
       await provider.markCaptured(widget.student.dakhila, savePath);
       if (!mounted) return;
 
@@ -307,6 +311,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<StudentProvider>();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -330,7 +335,7 @@ class _CameraScreenState extends State<CameraScreen> {
                       ),
                     ),
                     // 3x3 rule-of-thirds grid — মুখ মাঝখানে রাখতে সাহায্য করে
-                    if (_showGrid)
+                    if (provider.isGridMode)
                       Positioned.fill(
                         child: IgnorePointer(
                           child: CustomPaint(
@@ -407,8 +412,10 @@ class _CameraScreenState extends State<CameraScreen> {
                                   : Colors.white,
                             ),
                           _controlButton(
-                            _showGrid ? Icons.grid_on : Icons.grid_off,
-                            () => setState(() => _showGrid = !_showGrid),
+                            provider.isGridMode
+                                ? Icons.grid_on
+                                : Icons.grid_off,
+                            () => provider.setGridMode(!provider.isGridMode),
                           ),
                         ],
                       ),

@@ -4,19 +4,37 @@ import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/database_helper.dart';
 import '../models/forik_stat.dart';
 import '../models/student.dart';
+import '../utils/excel_parser.dart';
 import '../utils/gallery_saver.dart';
 
 class StudentProvider extends ChangeNotifier {
+  StudentProvider({SharedPreferences? prefs}) : _prefs = prefs {
+    if (_prefs == null) return;
+    isPassportMode = _prefs!.getBool('passportMode') ?? isPassportMode;
+    isSerialMode = _prefs!.getBool('serialMode') ?? isSerialMode;
+    isGridMode = _prefs!.getBool('gridMode') ?? isGridMode;
+    final saved = _prefs!.getString('themeMode');
+    if (saved != null) {
+      themeMode = ThemeMode.values
+          .firstWhere((m) => m.name == saved, orElse: () => ThemeMode.system);
+    }
+  }
+
+  final SharedPreferences? _prefs;
+
   List<Student> _students = [];
   List<Student> _filtered = [];
   bool isLoading = true;
   String selectedForik = '';
   bool isPassportMode = true; // true = passport size 600x800
   bool isSerialMode = true;
+  bool isGridMode = true;
+  ThemeMode themeMode = ThemeMode.system;
 
   String selectedClass = '';
   List<String> classes = [];
@@ -25,6 +43,7 @@ class StudentProvider extends ChangeNotifier {
   String _query = '';
   Timer? _debounce;
   int _searchRequest = 0;
+  final Map<String, bool> _undoFlags = {};
 
   List<ForikStat> _forikStats = [];
 
@@ -105,11 +124,25 @@ class StudentProvider extends ChangeNotifier {
 
   void togglePassport(bool v) {
     isPassportMode = v;
+    _prefs?.setBool('passportMode', v);
     notifyListeners();
   }
 
   void toggleSerial(bool v) {
     isSerialMode = v;
+    _prefs?.setBool('serialMode', v);
+    notifyListeners();
+  }
+
+  void setGridMode(bool v) {
+    isGridMode = v;
+    _prefs?.setBool('gridMode', v);
+    notifyListeners();
+  }
+
+  void setThemeMode(ThemeMode mode) {
+    themeMode = mode;
+    _prefs?.setString('themeMode', mode.name);
     notifyListeners();
   }
 
@@ -128,16 +161,28 @@ class StudentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ছবির ফাইল ডিলিট + রেকর্ড রিসেট (viewer-এর delete অ্যাকশন)।
-  Future<void> clearCaptured(String dakhila) async {
+  /// ছবি মোছা (রেকর্ড রিসেট + ফাইল ট্র্যাশে সরানো — Undo সুবিধার জন্য)।
+  /// রিটার্ন: ট্র্যাশ ফাইলের পাথ (null = ফাইল ছিল না)।
+  Future<String?> clearCaptured(String dakhila) async {
     final sources = [..._students, ..._filtered];
+    String? trashPath;
     for (final s in sources) {
       if (s.dakhila == dakhila && s.imagePath != null) {
-        try {
-          final f = File(s.imagePath!);
-          if (await f.exists()) await f.delete();
-        } catch (e) {
-          debugPrint('Image delete failed: $e');
+        final src = File(s.imagePath!);
+        if (await src.exists()) {
+          try {
+            final appDir = await getExternalStorageDirectory() ??
+                await getApplicationDocumentsDirectory();
+            final trashDir = Directory('${appDir.path}/Trash');
+            if (!await trashDir.exists()) {
+              await trashDir.create(recursive: true);
+            }
+            final stamp = DateTime.now().millisecondsSinceEpoch;
+            trashPath = '${trashDir.path}/${dakhila}_$stamp.jpg';
+            await src.rename(trashPath);
+          } catch (e) {
+            debugPrint('Trash move failed: $e');
+          }
         }
         break;
       }
@@ -151,6 +196,64 @@ class StudentProvider extends ChangeNotifier {
       if (idx != -1) {
         list[idx].imagePath = null;
         list[idx].isCaptured = 0;
+      }
+    }
+    _forikStats = await DatabaseHelper.instance.getForikStats();
+    notifyListeners();
+    if (trashPath != null) _scheduleTrashCleanup(trashPath);
+    return trashPath;
+  }
+
+  /// ৬ সেকেন্ড পর ট্র্যাশ ফাইল মুছে ফেলে (Undo না করলে)।
+  void _scheduleTrashCleanup(String trashPath) {
+    _undoFlags[trashPath] = false;
+    Future.delayed(const Duration(seconds: 6), () async {
+      final undone = _undoFlags[trashPath] ?? false;
+      _undoFlags.remove(trashPath);
+      if (undone) return;
+      try {
+        final f = File(trashPath);
+        if (await f.exists()) await f.delete();
+      } catch (e) {
+        debugPrint('Trash cleanup failed: $e');
+      }
+    });
+  }
+
+  /// Undo: ট্র্যাশ থেকে ছবি ফেরত + রেকর্ড পুনঃস্থাপন।
+  Future<void> restoreFromTrash(String dakhila, String trashPath) async {
+    _undoFlags[trashPath] = true;
+    // ডিলিটের পর ইতিমধ্যে নতুন ছবি তোলা হলে restore বাদ — ট্র্যাশ মুছে যাবে
+    final all = await DatabaseHelper.instance.getAllStudents();
+    Student? current;
+    for (final s in all) {
+      if (s.dakhila == dakhila) {
+        current = s;
+        break;
+      }
+    }
+    if (current != null && current.isCaptured == 1) {
+      try {
+        final f = File(trashPath);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+      return;
+    }
+    final appDir = await getExternalStorageDirectory() ??
+        await getApplicationDocumentsDirectory();
+    final dest = '${appDir.path}/DakhilaCamera/$dakhila.jpg';
+    try {
+      await File(trashPath).rename(dest);
+    } catch (e) {
+      debugPrint('Restore rename failed: $e');
+      return;
+    }
+    await DatabaseHelper.instance.updateImage(dakhila, dest);
+    for (final list in [_students, _filtered]) {
+      final idx = list.indexWhere((s) => s.dakhila == dakhila);
+      if (idx != -1) {
+        list[idx].imagePath = dest;
+        list[idx].isCaptured = 1;
       }
     }
     _forikStats = await DatabaseHelper.instance.getForikStats();
@@ -240,6 +343,16 @@ class StudentProvider extends ChangeNotifier {
     final raw = await File(filePath).readAsString();
     final List<Map<String, dynamic>> maps =
         await Isolate.run(() => Student.parseJsonToMaps(raw));
+    if (maps.isEmpty) return 0;
+    final imported = await DatabaseHelper.instance.replaceAllStudents(maps);
+    await load();
+    return imported;
+  }
+
+  /// ডিভাইস থেকে বাছাই করা Excel (.xlsx) ফাইল ইমপোর্ট।
+  Future<int> importFromExcelFile(String filePath) async {
+    final bytes = await File(filePath).readAsBytes();
+    final maps = await ExcelParser.parseFromBytesInIsolate(bytes);
     if (maps.isEmpty) return 0;
     final imported = await DatabaseHelper.instance.replaceAllStudents(maps);
     await load();

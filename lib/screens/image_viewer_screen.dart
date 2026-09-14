@@ -34,8 +34,23 @@ class ImageViewerScreen extends StatelessWidget {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await provider.clearCaptured(student.dakhila);
-      if (context.mounted) Navigator.pop(context);
+      final trashPath = await provider.clearCaptured(student.dakhila);
+      if (!context.mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context);
+      if (trashPath != null) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: const Text('ছবি মুছে ফেলা হয়েছে'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'পুনরুদ্ধার',
+              onPressed: () =>
+                  provider.restoreFromTrash(student.dakhila, trashPath),
+            ),
+          ));
+      }
     }
   }
 

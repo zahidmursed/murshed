@@ -61,12 +61,26 @@ class ReviewScreen extends StatelessWidget {
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    await provider.clearCaptured(student.dakhila);
+    final trashPath = await provider.clearCaptured(student.dakhila);
     if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => CameraScreen(student: student)),
     );
+    if (trashPath != null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: const Text('ছবি মুছে ফেলা হয়েছে'),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'পুনরুদ্ধার',
+            onPressed: () =>
+                provider.restoreFromTrash(student.dakhila, trashPath),
+          ),
+        ));
+    }
   }
 
   Widget _roundAction(IconData icon, String tooltip, VoidCallback onTap,

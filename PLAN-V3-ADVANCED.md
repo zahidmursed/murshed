@@ -104,15 +104,15 @@ Future<String> exportForikWise({String? className}) async {
 }
 ```
 
-### Phase 5B - QUICK WINS (1 দিন) — v1.6.0
+### Phase 5B - QUICK WINS (1 দিন) — v1.6.0 ✅ সম্পন্ন (2026-09-14)
 
 | ফিচার | সময় |
 |---|---|
-| **Excel Import** (`excel` 4.x) | 3 ঘণ্টা - DAKHILA, STU_NAME কলাম ম্যাপ |
-| **Dark Mode** (`ThemeMode` + `shared_preferences`) | 1 ঘণ্টা |
-| **Settings Persist** (passport/serial/grid) | 30 মিনিট |
-| **Undo Delete** (5 sec snackbar, temp file) | 1 ঘণ্টা |
-| **Shutter Sound + Haptic** | 15 মিনিট |
+| **Excel Import** ✅ (`excel` 4.x, `utils/excel_parser.dart` — কেস-ইনসেনসিটিভ হেডার, isolate পার্স; Settings-এ টাইল) | করা হয়েছে |
+| **Dark Mode** ✅ (`ThemeMode` — Settings-এ SegmentedButton, MaterialApp darkTheme) | করা হয়েছে |
+| **Settings Persist** ✅ (`shared_preferences` — passport/serial/grid/theme; provider কনস্ট্রাক্টরে লোড) | করা হয়েছে |
+| **Undo Delete** ✅ (ট্র্যাশ ফোল্ডার + ৫ সেকেন্ড স্ন্যাকবার "পুনরুদ্ধার"; retake হলে restore স্কিপ) | করা হয়েছে |
+| **Shutter Sound + Haptic** ✅ (`SystemSound.alert` + `HapticFeedback.mediumImpact`) | করা হয়েছে |
 
 ### Phase 5C - QUALITY (1 দিন) — v1.7.0
 

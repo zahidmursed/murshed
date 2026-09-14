@@ -38,13 +38,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _importJson() async {
-    final provider = context.read<StudentProvider>();
+  Future<void> _importData({
+    required List<String> extensions,
+    required String label,
+    required Future<int> Function(String path) run,
+  }) async {
     final List<PlatformFile> files;
     try {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['json'],
+        allowedExtensions: extensions,
       );
     } catch (e) {
       debugPrint('Pick file error: $e');
@@ -55,7 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() => _importing = true);
     try {
-      final imported = await provider.importFromJsonFile(path);
+      final imported = await run(path);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$imported টি রেকর্ড ইমপোর্ট হয়েছে ✓')),
@@ -64,14 +67,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('Import error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text(
-                  'ইমপোর্ট ব্যর্থ — ফাইলটি সঠিক ফরম্যাটের JSON কি না যাচাই করুন')),
+          SnackBar(content: Text('$label ব্যর্থ — ফাইল ফরম্যাট যাচাই করুন')),
         );
       }
     } finally {
       if (mounted) setState(() => _importing = false);
     }
+  }
+
+  Future<void> _importJson() {
+    final provider = context.read<StudentProvider>();
+    return _importData(
+      extensions: ['json'],
+      label: 'JSON ইমপোর্ট',
+      run: provider.importFromJsonFile,
+    );
+  }
+
+  Future<void> _importExcel() {
+    final provider = context.read<StudentProvider>();
+    return _importData(
+      extensions: ['xlsx'],
+      label: 'Excel ইমপোর্ট',
+      run: provider.importFromExcelFile,
+    );
   }
 
   Future<void> _confirmReset() async {
@@ -201,117 +220,159 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('সেটিংস'),
         backgroundColor: Colors.teal,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: _importing
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.upload_file, color: Colors.teal),
-                  title: const Text('JSON ফাইল থেকে ডাটা ইমপোর্ট'),
-                  subtitle: const Text(
-                      'ডিভাইস থেকে JSON ফাইল বেছে নিন। নতুন ডেটা পুরনোটার বদলে '
-                      'বসবে — একই দাখিলার তোলা ছবির হিসাব থেকে যাবে।'),
-                  onTap: _importing ? null : _importJson,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: _backingUp
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.backup, color: Colors.teal),
-                  title: const Text('সব ছবি গ্যালারিতে ব্যাকআপ'),
-                  subtitle: Text(_backupStatus.isEmpty
-                      ? 'তোলা সব ছবি গ্যালারির Pictures/DakhilaCamera-তে কপি হবে '
-                          '(uninstall করলেও থাকবে)'
-                      : _backupStatus),
-                  onTap: _backingUp ? null : _backupAll,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: _recovering
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.restore, color: Colors.indigo),
-                  title: const Text('পুরনো ছবি রিকভারি (গ্যালারি থেকে)'),
-                  subtitle: Text(_recoverStatus.isEmpty
-                      ? 'Fresh install/আপডেটের পর গ্যালারির কপি থেকে তোলা ছবি '
-                          'ফিরিয়ে আনে — দাখিলা নম্বর মিলিয়ে'
-                      : _recoverStatus),
-                  onTap: (_recovering || _backingUp) ? null : _recover,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.restart_alt, color: Colors.red),
-                  title: const Text('ডাটা রিসেট'),
-                  subtitle: const Text(
-                      'সব রেকর্ড মুছে অ্যাপের বান্ডেল করা ডেটা আবার লোড হবে'),
-                  onTap: _importing ? null : _confirmReset,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(children: [
-                    Icon(Icons.folder_open, color: Colors.teal),
-                    SizedBox(width: 8),
-                    Text('আউটপুট ফোল্ডার',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
-                  ]),
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    _folderPath.isEmpty ? '...' : _folderPath,
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
+      body: Consumer<StudentProvider>(
+        builder: (context, provider, _) {
+          return ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _openFolder,
-                          icon: const Icon(Icons.folder_open),
-                          label: const Text('ফোল্ডার খুলুন'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _copyPath,
-                          icon: const Icon(Icons.copy),
-                          label: const Text('পাথ কপি'),
-                        ),
+                      const Text('থিম',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      SegmentedButton<ThemeMode>(
+                        segments: const [
+                          ButtonSegment(
+                              value: ThemeMode.system, label: Text('সিস্টেম')),
+                          ButtonSegment(
+                              value: ThemeMode.light, label: Text('লাইট')),
+                          ButtonSegment(
+                              value: ThemeMode.dark, label: Text('ডার্ক')),
+                        ],
+                        selected: {provider.themeMode},
+                        onSelectionChanged: (s) =>
+                            provider.setThemeMode(s.first),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'প্রতিটি ছবি গ্যালারির Pictures/DakhilaCamera ফোল্ডারেও সেভ হয়।\n'
-                    'টিপ: কিছু ফোনে File Manager "Android/data" ফোল্ডার দেখায় না — '
-                    'তখন "পাথ কপি" করে ফাইল ম্যানেজারের অ্যাড্রেস বারে বসান।',
-                    style: TextStyle(fontSize: 11, color: Colors.black54),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-        ],
+              const SizedBox(height: 12),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: _importing
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.upload_file, color: Colors.teal),
+                      title: const Text('JSON ফাইল থেকে ডাটা ইমপোর্ট'),
+                      subtitle: const Text(
+                          'ডিভাইস থেকে JSON ফাইল বেছে নিন। নতুন ডেটা পুরনোটার বদলে '
+                          'বসবে — একই দাখিলার তোলা ছবির হিসাব থেকে যাবে।'),
+                      onTap: _importing ? null : _importJson,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.table_view, color: Colors.teal),
+                      title: const Text('Excel ফাইল থেকে ডাটা ইমপোর্ট (.xlsx)'),
+                      subtitle: const Text(
+                          'কলাম হেডার (যেকোনো ক্রমে): DAKHILA, STU_NAME, CLASS_NAME, '
+                          'FORIK_NO, FATHER_NAME, DAKHILA_YEAR'),
+                      onTap: _importing ? null : _importExcel,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: _backingUp
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.backup, color: Colors.teal),
+                      title: const Text('সব ছবি গ্যালারিতে ব্যাকআপ'),
+                      subtitle: Text(_backupStatus.isEmpty
+                          ? 'তোলা সব ছবি গ্যালারির Pictures/DakhilaCamera-তে কপি হবে '
+                              '(uninstall করলেও থাকবে)'
+                          : _backupStatus),
+                      onTap: _backingUp ? null : _backupAll,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: _recovering
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.restore, color: Colors.indigo),
+                      title: const Text('পুরনো ছবি রিকভারি (গ্যালারি থেকে)'),
+                      subtitle: Text(_recoverStatus.isEmpty
+                          ? 'Fresh install/আপডেটের পর গ্যালারির কপি থেকে তোলা ছবি '
+                              'ফিরিয়ে আনে — দাখিলা নম্বর মিলিয়ে'
+                          : _recoverStatus),
+                      onTap: (_recovering || _backingUp) ? null : _recover,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.restart_alt, color: Colors.red),
+                      title: const Text('ডাটা রিসেট'),
+                      subtitle: const Text(
+                          'সব রেকর্ড মুছে অ্যাপের বান্ডেল করা ডেটা আবার লোড হবে'),
+                      onTap: _importing ? null : _confirmReset,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(children: [
+                        Icon(Icons.folder_open, color: Colors.teal),
+                        SizedBox(width: 8),
+                        Text('আউটপুট ফোল্ডার',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
+                      ]),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        _folderPath.isEmpty ? '...' : _folderPath,
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _openFolder,
+                              icon: const Icon(Icons.folder_open),
+                              label: const Text('ফোল্ডার খুলুন'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _copyPath,
+                              icon: const Icon(Icons.copy),
+                              label: const Text('পাথ কপি'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'প্রতিটি ছবি গ্যালারির Pictures/DakhilaCamera ফোল্ডারেও সেভ হয়।\n'
+                        'টিপ: কিছু ফোনে File Manager "Android/data" ফোল্ডার দেখায় না — '
+                        'তখন "পাথ কপি" করে ফাইল ম্যানেজারের অ্যাড্রেস বারে বসান।',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
