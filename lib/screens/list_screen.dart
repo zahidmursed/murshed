@@ -6,9 +6,9 @@ import 'package:provider/provider.dart';
 import '../models/document.dart';
 import '../providers/student_provider.dart';
 import 'camera_screen.dart';
+import 'document_dashboard_screen.dart';
 import 'export_screen.dart';
 import 'gallery_screen.dart';
-import 'image_viewer_screen.dart';
 import 'settings_screen.dart';
 
 class ListScreen extends StatefulWidget {
@@ -225,17 +225,11 @@ class _ListScreenState extends State<ListScreen> {
                       ],
                     ),
                     onTap: () {
-                      if (captured) {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => ImageViewerScreen(student: s)));
-                      } else {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => CameraScreen(student: s)));
-                      }
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  DocumentDashboardScreen(student: s)));
                     },
                     trailing: IconButton(
                       icon: const Icon(Icons.camera_alt, color: Colors.teal),

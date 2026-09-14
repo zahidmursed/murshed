@@ -3,12 +3,13 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../db/database_helper.dart';
+import '../models/document.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
+import '../services/storage_service.dart';
 import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
 import 'review_screen.dart';
@@ -175,15 +176,6 @@ class _CameraScreenState extends State<CameraScreen> {
     return 'ক্যামেরা চালু করা যায়নি। আবার চেষ্টা করুন।';
   }
 
-  /// External storage পাওয়া না গেলে app documents directory ব্যবহার করবে।
-  Future<Directory> _getSaveDirectory() async {
-    final appDir = await getExternalStorageDirectory() ??
-        await getApplicationDocumentsDirectory();
-    final saveDir = Directory('${appDir.path}/DakhilaCamera');
-    if (!await saveDir.exists()) await saveDir.create(recursive: true);
-    return saveDir;
-  }
-
   Future<void> _takePicture() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized || _saving) {
@@ -196,9 +188,15 @@ class _CameraScreenState extends State<CameraScreen> {
       final XFile file = await controller.takePicture();
       if (!mounted) return;
 
-      final saveDir = await _getSaveDirectory();
-      if (!mounted) return;
-      final savePath = '${saveDir.path}/${widget.student.dakhila}.jpg';
+      // Phase 7: নতুন ছবি v2 ফোল্ডার-লেআউটে সেভ হয়
+      // (ছাত্র-প্রতি ফোল্ডার: v2/ক্লাস/Forik_N/দাখিলা/দাখিলা_PHOTO.jpg)
+      final savePath = await StorageService.documentPath(
+        widget.student.className,
+        widget.student.forikNo,
+        widget.student.dakhila,
+        DocType.PHOTO,
+        'jpg',
+      );
 
       if (provider.isPassportMode) {
         // Passport size: 600×800 (3:4) — isolate-এ center crop + resize

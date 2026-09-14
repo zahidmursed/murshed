@@ -95,6 +95,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Phase 7: `দাখিলা_টাইপ.ext` নামের একাধিক ফাইল একসাথে ইমপোর্ট।
+  Future<void> _bulkImport() async {
+    final provider = context.read<StudentProvider>();
+    final List<PlatformFile> files;
+    try {
+      files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+      );
+    } catch (e) {
+      debugPrint('Pick error: $e');
+      return;
+    }
+    final paths = files.map((f) => f.path).whereType<String>().toList();
+    if (paths.isEmpty || !mounted) return;
+    setState(() => _importing = true);
+    try {
+      final res = await provider.bulkImportDocuments(paths);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                'Bulk ইমপোর্ট: ${res.assigned} টি সফল, ${res.skipped} টি স্কিপ '
+                '(নাম ফরম্যাট বা দাখিলা মেলেনি)')),
+      );
+    } catch (e) {
+      debugPrint('Bulk import failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bulk ইমপোর্ট ব্যর্থ')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
   Future<void> _confirmReset() async {
     final provider = context.read<StudentProvider>();
     final confirmed = await showDialog<bool>(
@@ -307,6 +344,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'কলাম হেডার (যেকোনো ক্রমে): DAKHILA, STU_NAME, CLASS_NAME, '
                           'FORIK_NO, FATHER_NAME, DAKHILA_YEAR'),
                       onTap: _importing ? null : _importExcel,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.drive_folder_upload,
+                          color: Colors.teal),
+                      title: const Text('Bulk ইমপোর্ট (ফাইলনাম থেকে)'),
+                      subtitle: const Text(
+                          'একসাথে অনেক ফাইল বাছুন — নাম হতে হবে '
+                          'দাখিলা_টাইপ.ext (যেমন 281_BIRTH.pdf, 282_FORM.jpg)'),
+                      onTap: _importing ? null : _bulkImport,
                     ),
                     const Divider(height: 1),
                     ListTile(

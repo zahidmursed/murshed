@@ -82,6 +82,27 @@ class GallerySaver {
 
   /// যেকোনো এক্সপোর্ট ফাইল (ZIP/PDF/CSV) সিস্টেম শেয়ার শিটে পাঠায়
   /// (native FileProvider intent — MainActivity.kt)।
+  /// সিস্টেম ভিউয়ারে ফাইল খোলে (PDF/ইমেজ — native ACTION_VIEW)।
+  static Future<bool> viewFile({
+    required String path,
+    String mime = '*/*',
+  }) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('viewFile', {
+        'path': path,
+        'mime': mime,
+      });
+      return ok ?? false;
+    } on PlatformException catch (e) {
+      debugPrint('View file failed: ${e.code} ${e.message}');
+      return false;
+    } on MissingPluginException {
+      debugPrint('GallerySaver: platform channel not available');
+      return false;
+    }
+  }
+
+  /// এক্সপোর্ট ফাইল (ZIP/PDF/CSV) সিস্টেম শেয়ার শিটে পাঠায়।
   static Future<bool> shareFile({
     required String path,
     String mime = '*/*',
@@ -92,11 +113,8 @@ class GallerySaver {
         'mime': mime,
       });
       return ok ?? false;
-    } on PlatformException catch (e) {
-      debugPrint('Share file failed: ${e.code} ${e.message}');
-      return false;
-    } on MissingPluginException {
-      debugPrint('GallerySaver: platform channel not available');
+    } catch (e) {
+      debugPrint('Share file failed: $e');
       return false;
     }
   }

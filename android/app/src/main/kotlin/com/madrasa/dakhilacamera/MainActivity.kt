@@ -88,6 +88,19 @@ class MainActivity : FlutterActivity() {
                             requestImageReadPermission()
                         }
                     }
+                    "viewFile" -> {
+                        val path = call.argument<String>("path")
+                        val mime = call.argument<String>("mime") ?: "*/*"
+                        if (path == null) {
+                            result.error("INVALID_ARGS", "path required", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            result.success(viewFile(path, mime))
+                        } catch (e: Exception) {
+                            result.error("VIEW_FAILED", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -268,6 +281,23 @@ class MainActivity : FlutterActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(intent, "Share"))
+        return true
+    }
+
+    /// সিস্টেম ভিউয়ারে ফাইল খোলে (PDF/ইমেজ — ACTION_VIEW)।
+    private fun viewFile(path: String, mime: String): Boolean {
+        val file = File(path)
+        if (!file.exists()) throw IllegalStateException("File not found: $path")
+        val uri = FileProvider.getUriForFile(
+            applicationContext,
+            "${applicationContext.packageName}.fileprovider",
+            file
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(intent)
         return true
     }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -404,6 +405,138 @@ class StudentProvider extends ChangeNotifier {
       onProgress?.call(done, targets.length);
     }
     return moved;
+  }
+
+  /// Phase 7: ডকুমেন্ট (PHOTO/BIRTH/FORM) ছাত্রের ফোল্ডারে কপি করে সেভ করে।
+  Future<void> assignDocument({
+    required String dakhila,
+    required DocType type,
+    required String srcPath,
+  }) async {
+    // ছাত্র খুঁজি (ফিল্টারে না থাকলে DB থেকে)
+    Student? target;
+    for (final x in _students) {
+      if (x.dakhila == dakhila) {
+        target = x;
+        break;
+      }
+    }
+    target ??= () {
+      for (final x in _filtered) {
+        if (x.dakhila == dakhila) return x;
+      }
+      return null;
+    }();
+    if (target == null) {
+      final all = await DatabaseHelper.instance.getAllStudents();
+      for (final x in all) {
+        if (x.dakhila == dakhila) {
+          target = x;
+          break;
+        }
+      }
+    }
+    if (target == null) {
+      throw StateError('$dakhila দাখিলার ছাত্র পাওয়া যায়নি');
+    }
+
+    final ext = srcPath.contains('.')
+        ? srcPath.split('.').last.toLowerCase()
+        : (type == DocType.PHOTO ? 'jpg' : 'pdf');
+    final newPath = await StorageService.copyToStudentFolder(
+      className: target.className,
+      forik: target.forikNo,
+      dakhila: dakhila,
+      type: type,
+      oldPath: srcPath,
+    );
+    if (newPath == null) throw StateError('ফাইল কপি ব্যর্থ');
+
+    final mime = ext == 'pdf'
+        ? 'application/pdf'
+        : (ext == 'png' ? 'image/png' : 'image/jpeg');
+    final doc = StudentDocument(
+      dakhila: dakhila,
+      type: type,
+      filePath: newPath,
+      ext: ext,
+      mimeType: mime,
+      status: 1,
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+    if (type == DocType.PHOTO) {
+      await DatabaseHelper.instance.updateImage(dakhila, newPath);
+    } else {
+      await DatabaseHelper.instance.upsertDocument(doc);
+    }
+    _docs.putIfAbsent(dakhila, () => {})[type] = doc;
+    for (final list in [_students, _filtered]) {
+      final i = list.indexWhere((x) => x.dakhila == dakhila);
+      if (i != -1) {
+        if (type == DocType.PHOTO) {
+          list[i].imagePath = newPath;
+          list[i].isCaptured = 1;
+        }
+        list[i].totalDocs = _docs[dakhila]?.length ?? 0;
+      }
+    }
+    notifyListeners();
+  }
+
+  /// ডকুমেন্ট মুছে ফেলা (ফাইল + DB)।
+  Future<void> removeDocument({
+    required String dakhila,
+    required DocType type,
+  }) async {
+    final path = _docs[dakhila]?[type]?.filePath;
+    if (type == DocType.PHOTO) {
+      await DatabaseHelper.instance.clearImage(dakhila);
+    } else {
+      await DatabaseHelper.instance.deleteDocument(dakhila, type);
+    }
+    if (path != null) {
+      try {
+        final f = File(path);
+        if (await f.exists()) await f.delete();
+      } catch (e) {
+        debugPrint('Doc file delete failed: $e');
+      }
+    }
+    _docs[dakhila]?.remove(type);
+    for (final list in [_students, _filtered]) {
+      final i = list.indexWhere((x) => x.dakhila == dakhila);
+      if (i != -1) {
+        if (type == DocType.PHOTO) {
+          list[i].imagePath = null;
+          list[i].isCaptured = 0;
+        }
+        list[i].totalDocs = _docs[dakhila]?.length ?? 0;
+      }
+    }
+    _forikStats = await DatabaseHelper.instance.getForikStats();
+    notifyListeners();
+  }
+
+  /// Phase 7: `281_BIRTH.pdf` নামের একাধিক ফাইল একসাথে ইমপোর্ট।
+  Future<({int assigned, int skipped})> bulkImportDocuments(
+      List<String> paths) async {
+    var assigned = 0;
+    var skipped = 0;
+    for (final path in paths) {
+      final parsed = parseBulkDocName(p.basename(path));
+      if (parsed == null) {
+        skipped++;
+        continue;
+      }
+      final (dakhila, type) = parsed;
+      try {
+        await assignDocument(dakhila: dakhila, type: type, srcPath: path);
+        assigned++;
+      } catch (_) {
+        skipped++;
+      }
+    }
+    return (assigned: assigned, skipped: skipped);
   }
 
   /// Settings: সব তোলা ছবি গ্যালারিতে (Pictures/DakhilaCamera) ব্যাকআপ —

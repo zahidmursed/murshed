@@ -81,3 +81,16 @@ class StudentWithDocs {
 
   bool hasDoc(DocType type) => docs[type] != null;
 }
+
+/// Bulk import: `281_BIRTH.pdf` নাম থেকে (দাখিলা, DocType) বের করে —
+/// ফরম্যাট না মিললে null। হেডার কেস-ইনসেনসিটিভ।
+(String, DocType)? parseBulkDocName(String fileName) {
+  final m = RegExp(
+    r'^(\d+)_(PHOTO|BIRTH|FORM)\.(jpe?g|png|pdf)$',
+    caseSensitive: false,
+  ).firstMatch(fileName.trim());
+  if (m == null) return null;
+  final type =
+      DocType.values.firstWhere((t) => t.name == m.group(2)!.toUpperCase());
+  return (m.group(1)!, type);
+}

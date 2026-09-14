@@ -150,19 +150,19 @@ class DocScannerService {
 
 **Test:** `flutter test` → **21/21 পাস** (`document_db_test.dart`: v2→v4 migration পুরনো ছবি প্রিজার্ভ + fresh v4 schema)
 
-### Phase 7 - Dashboard + Capture (Day 2-3, 12h) — v1.9.0
+### Phase 7 - Dashboard + Capture — ✅ সম্পন্ন (2026-09-14) — v1.8.0+10
 
-| Task | Est |
+| Task | অবস্থা |
 |------|-----|
-| document_dashboard_screen.dart + 3 cards + progress ring | 3h |
-| Photo capture reuse camera_screen but via dashboard | 1h |
-| cunning_document_scanner integration + File Picker PDF | 2h |
-| PDF viewer screen (for BIRTH/FORM pdf) | 2h |
-| Bulk filename parser: `281_BIRTH.pdf` → auto assign | 2h |
-| Settings: toggle scan quality, storage location info | 1h |
-| Update export_service to support doc_type filter | 1h |
+| document_dashboard_screen + 3 cards + progress ring ✅ (Consumer-live, per-type status chip) |
+| Photo capture reuse via dashboard ✅ (camera push; নতুন ছবি v2 ফোল্ডারে সেভ) |
+| File Picker PDF/JPG for BIRTH/FORM ✅ (ML Kit scanner — Phase 8-এ স্থগিত) |
+| PDF/document view ✅ (native `viewFile` channel — system viewer, শূন্য dependency) |
+| Bulk filename parser ✅ (`281_BIRTH.pdf` → auto assign; Settings-এ multiple pick; টেস্ট সহ) |
+| Settings: storage info ✅ (আগেই আছে) |
 
-**Validation:** 10 students × 3 docs manual, file exists in Pictures
+**নোট:** export_service-এর doc_type filter → Phase 8 (Export v2)।
+**Validation:** analyze 0, tests 23/23, APK v1.8.0 বিল্ড সফল।
 
 ### Phase 8 - Export v2 & Bulk Ops (Day 4, 6h) — v2.0.0
 
