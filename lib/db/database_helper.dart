@@ -73,20 +73,25 @@ class DatabaseHelper {
     await batch.commit(noResult: true);
   }
 
-  Future<List<Student>> getAllStudents({String? forikFilter}) async {
+  Future<List<Student>> getAllStudents(
+      {String? forikFilter, String? classFilter}) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps;
-    if (forikFilter != null && forikFilter.isNotEmpty) {
-      maps = await db.query(
-        'students',
-        where: 'forik_no = ?',
-        whereArgs: [forikFilter],
-        orderBy: 'CAST(dakhila AS INTEGER) ASC',
-      );
-    } else {
-      maps =
-          await db.query('students', orderBy: 'CAST(dakhila AS INTEGER) ASC');
+    final where = <String>[];
+    final args = <dynamic>[];
+    if (classFilter != null && classFilter.isNotEmpty) {
+      where.add('class_name = ?');
+      args.add(classFilter);
     }
+    if (forikFilter != null && forikFilter.isNotEmpty) {
+      where.add('forik_no = ?');
+      args.add(forikFilter);
+    }
+    final maps = await db.query(
+      'students',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: where.isEmpty ? null : args,
+      orderBy: 'CAST(dakhila AS INTEGER) ASC',
+    );
     return maps.map((m) => _mapToStudent(m)).toList();
   }
 
@@ -100,11 +105,16 @@ class DatabaseHelper {
     );
   }
 
-  /// [forikFilter] দিলে সেই ফরিকের মধ্যেই সার্চ হবে।
-  Future<List<Student>> search(String query, {String? forikFilter}) async {
+  /// [forikFilter]/[classFilter] দিলে সেই সীমার মধ্যেই সার্চ হবে।
+  Future<List<Student>> search(String query,
+      {String? forikFilter, String? classFilter}) async {
     final db = await database;
     String where = '(dakhila LIKE ? OR stu_name LIKE ?)';
     final List<dynamic> args = ['%$query%', '%$query%'];
+    if (classFilter != null && classFilter.isNotEmpty) {
+      where += ' AND class_name = ?';
+      args.add(classFilter);
+    }
     if (forikFilter != null && forikFilter.isNotEmpty) {
       where += ' AND forik_no = ?';
       args.add(forikFilter);
@@ -130,14 +140,95 @@ class DatabaseHelper {
   }
 
   /// ফরিক-ভিত্তিক প্রগ্রেস (মোট/তোলা) — প্রগ্রেস chips-এর জন্য।
-  Future<List<ForikStat>> getForikStats() async {
+  Future<List<ForikStat>> getForikStats({String? classFilter}) async {
     final db = await database;
+    String where = '';
+    final args = <dynamic>[];
+    if (classFilter != null && classFilter.isNotEmpty) {
+      where = 'WHERE class_name = ?';
+      args.add(classFilter);
+    }
     final rows = await db.rawQuery(
       'SELECT forik_no, COUNT(*) AS total, '
-      'COALESCE(SUM(is_captured), 0) AS captured FROM students '
+      'COALESCE(SUM(is_captured), 0) AS captured FROM students $where '
       'GROUP BY forik_no ORDER BY CAST(forik_no AS INTEGER) ASC',
+      args.isEmpty ? null : args,
     );
     return rows.map(ForikStat.fromRow).toList();
+  }
+
+  /// ডিস্টিংক্ট ক্লাস লিস্ট — ক্লাস ফিল্টার dropdown-এর জন্য।
+  Future<List<String>> getDistinctClasses() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT class_name FROM students '
+      "WHERE class_name IS NOT NULL AND class_name != '' "
+      'ORDER BY class_name ASC',
+    );
+    return rows
+        .map((r) => (r['class_name'] as String?) ?? '')
+        .where((c) => c.isNotEmpty)
+        .toList();
+  }
+
+  /// ক্লাসভিত্তিক ফরিক লিস্ট (ক্লাস null হলে সব ফরিক)।
+  Future<List<String>> getForiksForClass({String? className}) async {
+    final db = await database;
+    String where = "forik_no IS NOT NULL AND forik_no != ''";
+    final args = <dynamic>[];
+    if (className != null && className.isNotEmpty) {
+      where += ' AND class_name = ?';
+      args.add(className);
+    }
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT forik_no FROM students WHERE $where '
+      'ORDER BY CAST(forik_no AS INTEGER) ASC',
+      args.isEmpty ? null : args,
+    );
+    return rows
+        .map((r) => (r['forik_no'] as String?) ?? '')
+        .where((f) => f.isNotEmpty)
+        .toList();
+  }
+
+  /// কাস্টম ইমপোর্ট: পুরনো ডেটার বদলে নতুন ডেটা বসে (এক ট্রানজেকশনে)।
+  /// একই দাখিলা নতুন ডেটাতে থাকলে তোলা ছবির স্ট্যাটাস প্রিজার্ভ হয়।
+  Future<int> replaceAllStudents(List<Map<String, dynamic>> maps) async {
+    final db = await database;
+    var imported = 0;
+    await db.transaction((txn) async {
+      final old = await txn.query(
+        'students',
+        columns: ['dakhila', 'image_path', 'is_captured'],
+      );
+      final captureByDakhila = <String, String?>{
+        for (final r in old)
+          if ((r['is_captured'] as int?) == 1)
+            (r['dakhila'] as String? ?? ''): r['image_path'] as String?,
+      };
+      await txn.delete('students');
+      final batch = txn.batch();
+      for (final source in maps) {
+        // defensive copy — কলারের ম্যাপে টাইপ ভিন্ন হলেও নিরাপদ
+        final m = Map<String, dynamic>.from(source);
+        final dakhila = m['dakhila'] as String? ?? '';
+        if (captureByDakhila.containsKey(dakhila)) {
+          m['image_path'] = captureByDakhila[dakhila];
+          m['is_captured'] = 1;
+        }
+        batch.insert('students', m,
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+      imported = maps.length;
+    });
+    return imported;
+  }
+
+  /// সব রেকর্ড মুছে ফেলে — পরের load()-এ বান্ডেল ডেটা আবার ইমপোর্ট হবে।
+  Future<void> deleteAllStudents() async {
+    final db = await database;
+    await db.delete('students');
   }
 
   Student _mapToStudent(Map<String, dynamic> m) {

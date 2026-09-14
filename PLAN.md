@@ -121,6 +121,21 @@ viewer-এও retake/delete আছে।
 > নতুন ফাইল: `lib/models/forik_stat.dart`, `lib/screens/review_screen.dart`,
 > `lib/screens/image_viewer_screen.dart`। DB-তে `clearImage` + `getForikStats`
 > (টেস্টে কভারড)। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
+
+### Phase 3C — কাস্টমাইজ + ফিল্টার + স্টোরেজ — ✅ সম্পন্ন (2026-09-14)
+
+- **কাস্টম ইমপোর্ট (JSON):** Settings screen (⚙️ AppBar-এ) — file_picker দিয়ে ডিভাইস
+  থেকে JSON বাছাই → isolate-এ পার্স → transaction-এ পুরনো ডেটা রিপ্লেস; একই দাখিলার
+  তোলা ছবির স্ট্যাটাস প্রিজার্ভ হয়। "ডাটা রিসেট" = সব মুছে বান্ডেল ডেটা পুনরায় লোড।
+  (নতুন dep: file_picker 12.x — static `FilePicker.pickFiles()` API)
+- **ক্লাস > ফরিক + All:** DB-তে `getDistinctClasses()` + `getForiksForClass()` —
+  ক্লাস বাছলে ফরিক লিস্ট dynamic; সার্চ ও progress chips-ও ক্লাস মেনে চলে।
+  "All" = ক্লাস+ফরিক দুটোই রিসেট। (hardcoded ১–১২ dropdown বাদ)
+- **আউটপুট ফোল্ডার ওপেন:** Settings-এ সেভ পাথ দেখানো + [ফোল্ডার খুলুন] (DocumentsUI
+  intent — android_intent_plus; ব্যর্থ হলে অটো পাথ-কপি) + [পাথ কপি] বাটন।
+
+> নতুন টেস্ট: replaceAllStudents-এ ক্যাপচার প্রিজার্ভ, ক্লাস/ফরিক লিস্ট,
+> রিসেট→বান্ডেল ডেটা পুনরুদ্ধার। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
 | # | কাজ |
 |---|---|
 | 3.1 | লিস্টে তোলা ছবির thumbnail (Image.file) + full-screen viewer + delete |

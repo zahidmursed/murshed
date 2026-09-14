@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/student_provider.dart';
 import 'camera_screen.dart';
 import 'image_viewer_screen.dart';
+import 'settings_screen.dart';
 
 class ListScreen extends StatefulWidget {
   const ListScreen({super.key});
@@ -37,7 +38,15 @@ class _ListScreenState extends State<ListScreen> {
                     Switch(
                         value: p.isPassportMode,
                         onChanged: (v) => p.togglePassport(v)),
-                  ]))
+                  ])),
+          IconButton(
+            tooltip: 'সেটিংস',
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()));
+            },
+          ),
         ],
       ),
       body: Consumer<StudentProvider>(builder: (context, provider, _) {
@@ -101,15 +110,29 @@ class _ListScreenState extends State<ListScreen> {
                     children: [
                       Expanded(
                           child: DropdownButtonFormField<String>(
+                        initialValue: provider.selectedClass.isEmpty
+                            ? null
+                            : provider.selectedClass,
+                        hint: const Text('ক্লাস'),
+                        items: provider.classes
+                            .map((c) =>
+                                DropdownMenuItem(value: c, child: Text(c)))
+                            .toList(),
+                        onChanged: (v) => provider.setClass(v ?? ''),
+                        decoration: const InputDecoration(
+                            border: OutlineInputBorder(), isDense: true),
+                      )),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: DropdownButtonFormField<String>(
                         initialValue: provider.selectedForik.isEmpty
                             ? null
                             : provider.selectedForik,
-                        hint: const Text('ফরিক ফিল্টার'),
-                        items: List.generate(
-                            12,
-                            (i) => DropdownMenuItem(
-                                value: '${i + 1}',
-                                child: Text('ফরিক ${i + 1}'))),
+                        hint: const Text('ফরিক'),
+                        items: provider.foriks
+                            .map((f) => DropdownMenuItem(
+                                value: f, child: Text('ফরিক $f')))
+                            .toList(),
                         onChanged: (v) {
                           if (v != null) provider.setForik(v);
                         },
@@ -118,17 +141,16 @@ class _ListScreenState extends State<ListScreen> {
                       )),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                          onPressed: () => provider.setForik(''),
+                          onPressed: () => provider.resetFilters(),
                           child: const Text('All')),
-                      const SizedBox(width: 8),
-                      Row(children: [
-                        const Text('Serial'),
-                        Switch(
-                            value: provider.isSerialMode,
-                            onChanged: (v) => provider.toggleSerial(v))
-                      ])
                     ],
-                  )
+                  ),
+                  Row(children: [
+                    const Text('Serial'),
+                    Switch(
+                        value: provider.isSerialMode,
+                        onChanged: (v) => provider.toggleSerial(v))
+                  ])
                 ],
               ),
             ),

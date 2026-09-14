@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 
@@ -14,6 +15,10 @@ class StudentProvider extends ChangeNotifier {
   String selectedForik = '';
   bool isPassportMode = true; // true = passport size 600x800
   bool isSerialMode = true;
+
+  String selectedClass = '';
+  List<String> classes = [];
+  List<String> foriks = [];
 
   String _query = '';
   Timer? _debounce;
@@ -31,10 +36,18 @@ class StudentProvider extends ChangeNotifier {
     isLoading = true;
     notifyListeners();
     await DatabaseHelper.instance.importJsonIfEmpty();
+    final String? classFilter = selectedClass.isEmpty ? null : selectedClass;
+    classes = await DatabaseHelper.instance.getDistinctClasses();
+    foriks = await DatabaseHelper.instance.getForiksForClass(
+      className: classFilter,
+    );
     _students = await DatabaseHelper.instance.getAllStudents(
       forikFilter: selectedForik.isEmpty ? null : selectedForik,
+      classFilter: classFilter,
     );
-    _forikStats = await DatabaseHelper.instance.getForikStats();
+    _forikStats = await DatabaseHelper.instance.getForikStats(
+      classFilter: classFilter,
+    );
     isLoading = false;
     if (_query.isEmpty) {
       _filtered = _students;
@@ -47,6 +60,19 @@ class StudentProvider extends ChangeNotifier {
 
   void setForik(String f) {
     selectedForik = f;
+    load();
+  }
+
+  void setClass(String c) {
+    selectedClass = c;
+    selectedForik = ''; // ক্লাস বদলালে ফরিক আবার বাছতে হবে
+    load();
+  }
+
+  /// ক্লাস + ফরিক দুটোই রিসেট ("All" বাটন)।
+  void resetFilters() {
+    selectedClass = '';
+    selectedForik = '';
     load();
   }
 
@@ -65,7 +91,11 @@ class StudentProvider extends ChangeNotifier {
     final String? forik = selectedForik.isEmpty ? null : selectedForik;
     final List<Student> results = q.isEmpty
         ? _students
-        : await DatabaseHelper.instance.search(q, forikFilter: forik);
+        : await DatabaseHelper.instance.search(
+            q,
+            forikFilter: forik,
+            classFilter: selectedClass.isEmpty ? null : selectedClass,
+          );
     if (requestId != _searchRequest) return; // পুরনো (stale) ফলাফল বাদ
     _filtered = results;
     notifyListeners();
@@ -120,6 +150,25 @@ class StudentProvider extends ChangeNotifier {
     }
     _forikStats = await DatabaseHelper.instance.getForikStats();
     notifyListeners();
+  }
+
+  /// ডিভাইস থেকে বাছাই করা JSON ফাইল ইমপোর্ট (পুরনো ডেটার বদলে)।
+  Future<int> importFromJsonFile(String filePath) async {
+    final raw = await File(filePath).readAsString();
+    final List<Map<String, dynamic>> maps =
+        await Isolate.run(() => Student.parseJsonToMaps(raw));
+    if (maps.isEmpty) return 0;
+    final imported = await DatabaseHelper.instance.replaceAllStudents(maps);
+    await load();
+    return imported;
+  }
+
+  /// সব রেকর্ড মুছে বান্ডেল ডেটা পুনরায় ইমপোর্ট (পরের load()-এ)।
+  Future<void> resetData() async {
+    selectedForik = '';
+    _query = '';
+    await DatabaseHelper.instance.deleteAllStudents();
+    await load();
   }
 
   Student? getNext(String currentDakhila) {

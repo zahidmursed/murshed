@@ -72,5 +72,52 @@ void main() {
     expect(stat1.total, forik1Count);
     expect(stat1.captured, 0);
     expect(stat1.remaining, stat1.total);
+
+    // কাস্টম ইমপোর্ট: রিপ্লেস + ক্যাপচার প্রিজার্ভ
+    await DatabaseHelper.instance.updateImage('281', '${tmpDir.path}/281.jpg');
+    final customMaps = <Map<String, dynamic>>[
+      {
+        'dakhila': '281',
+        'stu_name': 'নতুন শিক্ষার্থী',
+        'class_name': 'তাহফীজ',
+        'forik_no': '3',
+        'father_name': 'অভিভাবক',
+        'dakhila_year': '2026',
+      },
+      {
+        'dakhila': '900001',
+        'stu_name': 'কাস্টম রেকর্ড',
+        'class_name': 'হিফজুল কুরআন',
+        'forik_no': '1',
+        'father_name': '',
+        'dakhila_year': '2026',
+      },
+    ];
+    final imported =
+        await DatabaseHelper.instance.replaceAllStudents(customMaps);
+    expect(imported, 2);
+    final afterImport = await DatabaseHelper.instance.getAllStudents();
+    expect(afterImport.length, 2);
+    final preserved = afterImport.firstWhere((s) => s.dakhila == '281');
+    expect(preserved.isCaptured, 1); // ক্যাপচার প্রিজার্ভ হয়েছে
+    expect(preserved.imagePath, endsWith('281.jpg'));
+    expect(preserved.className, 'তাহফীজ');
+
+    // ক্লাস > ফরিক লিস্ট
+    final classes = await DatabaseHelper.instance.getDistinctClasses();
+    expect(classes, containsAll(<String>['তাহফীজ', 'হিফজুল কুরআন']));
+    expect(
+      await DatabaseHelper.instance.getForiksForClass(className: 'তাহফীজ'),
+      ['3'],
+    );
+
+    // রিসেট → বান্ডেল ডেটা ফিরে আসে
+    await DatabaseHelper.instance.deleteAllStudents();
+    await DatabaseHelper.instance.importJsonIfEmpty();
+    final restored = await DatabaseHelper.instance.getAllStudents();
+    expect(restored.length, greaterThan(1000));
+    expect(await DatabaseHelper.instance.getDistinctClasses(), isNotEmpty);
+    final s281AfterReset = restored.firstWhere((s) => s.dakhila == '281');
+    expect(s281AfterReset.isCaptured, 0);
   });
 }
