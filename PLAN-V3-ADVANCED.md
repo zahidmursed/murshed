@@ -83,10 +83,15 @@ lib/
 
 | # | ফিচার | Implementation | Value |
 |---|---|---|---|
-| 5A.1 | **Forik-wise ZIP Export** | `archive` package - ফোল্ডার স্ট্রাকচার: `Class_Mishkat/Forik_1/281.jpg` | অফিস 1 ক্লিকে পাবে |
-| 5A.2 | **Missing Report CSV** | `csv` package - `Dakhila, Name, Forik, Class` যাদের ছবি নেই | কোন ছাত্র বাদ পড়ল জানা যাবে |
-| 5A.3 | **PDF Print Sheet** | `pdf` + `printing` package - A4 তে 12টা ছবি (3x4), নিচে দাখিলা + নাম | সরাসরি প্রিন্ট দিয়ে ID কার্ড বানানো |
-| 5A.4 | **Gallery Grid View** | আলাদা ট্যাব "তোলা ছবি" - `GridView.builder` 100 pagination | দ্রুত ভেরিফিকেশন |
+| 5A.1 ✅ | **Forik-wise ZIP Export** | `archive` (streaming ZipFileEncoder) — ফোল্ডার স্ট্রাকচার: `ক্লাস/ফরিক/দাখিলা.jpg` + ভিতরে missing CSV | অফিস 1 ক্লিকে পাবে |
+| 5A.2 ✅ | **Missing Report CSV** | `csv` + UTF-8 BOM — Excel-এ বাংলা ঠিক দেখায় | কোন ছাত্র বাদ পড়ল জানা যাবে |
+| 5A.3 ✅ | **PDF Print Sheet** | `pdf` প্যাকেজ — A4-তে **৯টি/পেজ (3×3, সঠিক 3:4 অনুপাত)** + দাখিলা নম্বর ক্যাপশন (pdf-এ বাংলা shaping নেই বলে নাম বাদ); শেয়ার শিটে প্রিন্ট অপশন | ID কার্ড প্রিন্ট |
+| 5A.4 ✅ | **Gallery Grid View** | AppBar 🖼 → গ্রিড স্ক্রিন (`GridView.builder` + `cacheWidth` thumbnail) | দ্রুত ভেরিফিকেশন |
+
+> **নোট:** share_plus ↔ file_picker 12 win32 conflict-এর কারণে শেয়ার নিজের native
+> channel দিয়ে (`GallerySaver.shareFile` → FileProvider ACTION_SEND) — নতুন dependency লাগেনি।
+> এক্সপোর্ট UI: ⚙️ নয়, AppBar-এ 🗜 আইকন → `screens/export_screen.dart`; স্কোপ = লিস্টের ফিল্টার।
+> টেস্ট: `test/export_service_test.dart` (ZIP+CSV+PDF, 10/10 পাস)।
 
 **Code Hint for ZIP:**
 ```dart

@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.2.0+4 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.5.0+5 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -38,6 +38,15 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 ### 🗃 ছবি ম্যানেজমেন্ট
 - লিস্টে তোলা ছবির **thumbnail**; ট্যাপ করলে **full-screen viewer** (zoom সহ)
 - viewer থেকেই **retake / delete** — delete-এ ফাইল ও রেকর্ড দুটোই রিসেট হয়
+- AppBar-এ 🖼 আইকনে **ছবি গ্যালারি গ্রিড** — শুধু তোলা ছবি, দ্রুত ভেরিফিকেশন
+
+### 📤 এক্সপোর্ট (AppBar-এ 🗜 আইকন)
+- **ZIP এক্সপোর্ট** — ফোল্ডার স্ট্রাকচার `ক্লাস/ফরিক/দাখিলা.jpg`, ভিতরে missing report;
+  streaming encoder — হাজার ছবিতেও মেমোরি নিরাপদ
+- **Missing Report (CSV)** — যাদের ছবি বাকি (UTF-8 BOM, Excel-এ বাংলা ঠিক দেখায়)
+- **PDF প্রিন্ট শিট** — A4-তে ৯টি করে (3×3) পাসপোর্ট ছবি + দাখিলা নম্বর ক্যাপশন
+- এক্সপোর্ট শেষে সরাসরি **শেয়ার শিট** খোলে (WhatsApp/Gmail/PC)
+- স্কোপ = মূল লিস্টের বর্তমান ক্লাস/ফরিক ফিল্টার
 
 ### 💾 স্টোরেজ
 - সেভ হয়: `Android/data/com.madrasa.dakhilacamera/files/DakhilaCamera/{দাখিলা}.jpg`
@@ -61,8 +70,8 @@ flutter build apk --release  # APK তৈরি (universal)
 flutter build apk --release --split-per-abi  # ছোট APK (ABI অনুযায়ী আলাদা, ~16-20MB)
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.2.0-arm64-release.apk` (~18.5MB,
-  আধুনিক ফোন) ও `DakhilaCamera-v1.2.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.5.0-arm64-release.apk` (~19.2MB,
+  আধুনিক ফোন) ও `DakhilaCamera-v1.5.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
 
@@ -124,9 +133,8 @@ lib/
 - Excel/CSV ইমপোর্ট • ডার্ক মোড • ক্যাপচারে সাউন্ড/ভাইব্রেশন • মোছা ছবি Undo • মোড-সেটিংস মনে রাখা
 
 **মাঝারি**
-- ছাপার জন্য **PDF শিট** (প্রতি পাতায় একাধিক পাসপোর্ট ছবি + দাখিলা ক্যাপশন)
-- ZIP export + missing-ছবির রিপোর্ট • মারহালা/বছর ভিত্তিক ডেটা (schema v3)
-- তোলা ছবির গ্যালারি গ্রিড ভিউ • integration test + CI (GitHub Actions)
+- ✅ PDF শিট, ZIP export + missing রিপোর্ট, গ্যালারি গ্রিড ভিউ (v1.5.0 — Phase 5A)
+- মারহালা/বছর ভিত্তিক ডেটা (schema v3) • integration test + CI (GitHub Actions)
 
 **দূরবর্তী**
 - মুখ শনাক্ত করে auto-crop assist • ক্লাউড ব্যাকআপ • ট্যাবলেট লেআউট

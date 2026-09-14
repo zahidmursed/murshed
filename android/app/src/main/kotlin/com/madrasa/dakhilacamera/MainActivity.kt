@@ -4,7 +4,9 @@ import android.content.ContentValues
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.content.Intent
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -45,6 +47,19 @@ class MainActivity : FlutterActivity() {
                             result.success(deleteFromGallery(fileName))
                         } catch (e: Exception) {
                             result.error("DELETE_FAILED", e.message, null)
+                        }
+                    }
+                    "shareFile" -> {
+                        val path = call.argument<String>("path")
+                        val mime = call.argument<String>("mime") ?: "*/*"
+                        if (path == null) {
+                            result.error("INVALID_ARGS", "path required", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            result.success(shareFile(path, mime))
+                        } catch (e: Exception) {
+                            result.error("SHARE_FAILED", e.message, null)
                         }
                     }
                     else -> result.notImplemented()
@@ -118,5 +133,23 @@ class MainActivity : FlutterActivity() {
             selectionArgs = arrayOf("%${relativePath()}%", fileName)
         }
         return resolver.delete(imageCollection(), selection, selectionArgs)
+    }
+
+    /// যেকোনো এক্সপোর্ট ফাইল (ZIP/PDF/CSV) সিস্টেম শেয়ার শিটে পাঠায়।
+    private fun shareFile(path: String, mime: String): Boolean {
+        val file = File(path)
+        if (!file.exists()) throw IllegalStateException("File not found: $path")
+        val uri = FileProvider.getUriForFile(
+            applicationContext,
+            "${applicationContext.packageName}.fileprovider",
+            file
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "Share"))
+        return true
     }
 }

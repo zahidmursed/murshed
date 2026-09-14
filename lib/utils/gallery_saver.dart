@@ -47,4 +47,25 @@ class GallerySaver {
       return false;
     }
   }
+
+  /// যেকোনো এক্সপোর্ট ফাইল (ZIP/PDF/CSV) সিস্টেম শেয়ার শিটে পাঠায়
+  /// (native FileProvider intent — MainActivity.kt)।
+  static Future<bool> shareFile({
+    required String path,
+    String mime = '*/*',
+  }) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('shareFile', {
+        'path': path,
+        'mime': mime,
+      });
+      return ok ?? false;
+    } on PlatformException catch (e) {
+      debugPrint('Share file failed: ${e.code} ${e.message}');
+      return false;
+    } on MissingPluginException {
+      debugPrint('GallerySaver: platform channel not available');
+      return false;
+    }
+  }
 }

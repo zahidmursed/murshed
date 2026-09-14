@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import '../providers/student_provider.dart';
 import 'camera_screen.dart';
+import 'export_screen.dart';
+import 'gallery_screen.dart';
 import 'image_viewer_screen.dart';
 import 'settings_screen.dart';
 
@@ -39,6 +41,22 @@ class _ListScreenState extends State<ListScreen> {
                         value: p.isPassportMode,
                         onChanged: (v) => p.togglePassport(v)),
                   ])),
+          IconButton(
+            tooltip: 'তোলা ছবি',
+            icon: const Icon(Icons.photo_library),
+            onPressed: () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const GalleryScreen()));
+            },
+          ),
+          IconButton(
+            tooltip: 'এক্সপোর্ট',
+            icon: const Icon(Icons.folder_zip),
+            onPressed: () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const ExportScreen()));
+            },
+          ),
           IconButton(
             tooltip: 'সেটিংস',
             icon: const Icon(Icons.settings),

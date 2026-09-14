@@ -2,7 +2,7 @@
 name: dakhila_camera
 description: Camera app that saves image by DAKHILA value
 publish_to: 'none'
-version: 1.2.0+4
+version: 1.5.0+5
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -19,6 +19,9 @@ dependencies:
   cupertino_icons: ^1.0.6
   file_picker: ^12.3.0
   android_intent_plus: ^6.1.0
+  archive: 3.6.1
+  csv: 6.0.0
+  pdf: 3.11.0
 
 dev_dependencies:
   flutter_test:
