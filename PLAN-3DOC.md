@@ -150,7 +150,7 @@ class DocScannerService {
 
 **Test:** `flutter test` → **21/21 পাস** (`document_db_test.dart`: v2→v4 migration পুরনো ছবি প্রিজার্ভ + fresh v4 schema)
 
-### Phase 7 - Dashboard + Capture — ✅ সম্পন্ন (2026-09-14) — v1.8.0+10
+### Phase 7 - Dashboard + Capture — ✅ সম্পন্ন (2026-09-14) — v1.8.0+10 • 🔧 v1.8.1: BIRTH = JPEG-only
 
 | Task | অবস্থা |
 |------|-----|
@@ -162,7 +162,10 @@ class DocScannerService {
 | Settings: storage info ✅ (আগেই আছে) |
 
 **নোট:** export_service-এর doc_type filter → Phase 8 (Export v2)।
-**Validation:** analyze 0, tests 23/23, APK v1.8.0 বিল্ড সফল।
+**🔧 v1.8.1:** BIRTH (২য় ডক) **শুধু JPEG/PNG** — File Picker থেকে PDF বাদ,
+bulk import-এ `281_BIRTH.pdf` রিজেক্ট, `assignDocument`-এ গার্ড;
+`DocType.allowedExtensions` দিয়ে প্রতি-টাইপ নিয়ম কেন্দ্রীভূত।
+**Validation:** analyze 0, tests 23/23, APK v1.8.1 বিল্ড সফল।
 
 ### Phase 8 - Export v2 & Bulk Ops (Day 4, 6h) — v2.0.0
 

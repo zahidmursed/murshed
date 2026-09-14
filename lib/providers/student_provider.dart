@@ -443,6 +443,9 @@ class StudentProvider extends ChangeNotifier {
     final ext = srcPath.contains('.')
         ? srcPath.split('.').last.toLowerCase()
         : (type == DocType.PHOTO ? 'jpg' : 'pdf');
+    if (type == DocType.BIRTH && ext == 'pdf') {
+      throw StateError('জন্মসনদ অবশ্যই JPG/PNG ফরম্যাটে হবে (PDF নয়)');
+    }
     final newPath = await StorageService.copyToStudentFolder(
       className: target.className,
       forik: target.forikNo,

@@ -30,9 +30,7 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
     try {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: type == DocType.PHOTO
-            ? ['jpg', 'jpeg', 'png']
-            : ['pdf', 'jpg', 'jpeg', 'png'],
+        allowedExtensions: type.allowedExtensions,
       );
     } catch (e) {
       debugPrint('Pick error: $e');
@@ -208,7 +206,7 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
                     style: TextStyle(color: Colors.black45)),
               )
             else ...[
-              if (type == DocType.PHOTO)
+              if (!isPdf)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.file(

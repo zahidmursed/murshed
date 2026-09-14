@@ -10,6 +10,13 @@ extension DocTypeLabel on DocType {
         DocType.BIRTH => 'জন্মসনদ',
         DocType.FORM => 'আবেদন ফরম',
       };
+
+  /// এই টাইপে গ্রহণযোগ্য এক্সটেনশন (ব্যবহারকারীর সিদ্ধান্ত: BIRTH শুধু ছবি, PDF নয়)।
+  List<String> get allowedExtensions => switch (this) {
+        DocType.PHOTO => ['jpg', 'jpeg', 'png'],
+        DocType.BIRTH => ['jpg', 'jpeg', 'png'],
+        DocType.FORM => ['jpg', 'jpeg', 'png', 'pdf'],
+      };
 }
 
 /// documents টেবিলের একটি রো।
@@ -92,5 +99,7 @@ class StudentWithDocs {
   if (m == null) return null;
   final type =
       DocType.values.firstWhere((t) => t.name == m.group(2)!.toUpperCase());
+  final ext = m.group(3)!.toLowerCase();
+  if (!type.allowedExtensions.contains(ext)) return null; // BIRTH-এ PDF নয়
   return (m.group(1)!, type);
 }
