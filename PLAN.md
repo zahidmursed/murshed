@@ -177,7 +177,7 @@ Phase 1 (বাগ) → git commit → Phase 2 (রিফ্যাক্টর+�
 | আইডিয়া | নোট |
 |---|---|
 | Excel/CSV ইমপোর্ট | `excel` প্যাকেজ; কলাম হেডার JSON key-এর মতো (DAKHILA, STU_NAME...) |
-| ছবি গ্যালারিতেও সেভ | MediaStore → `Pictures/DakhilaCamera` — গ্যালারি/ফাইল ম্যানেজারে সরাসরি দেখা যাবে |
+| ~~ছবি গ্যালারিতেও সেভ~~ ✅ সম্পন্ন (2026-09-14) | MediaStore via MethodChannel (`MainActivity.kt`) → `Pictures/DakhilaCamera`; retake-এ replace, delete-এ গ্যালারি কপিও মুছে; নতুন `lib/utils/gallery_saver.dart`; Android 10+ permission-মুক্ত |
 | ডার্ক মোড | `ThemeMode` টগল; ক্যামেরা স্ক্রিন এমনিতেই ডার্ক |
 | ক্যাপচার ফিডব্যাক | শাটার সাউন্ড/ভাইব্রেশন + সেভে ছোট success অ্যানিমেশন |
 | Undo delete | মোছা ফাইল টেম্পে রেখে স্ন্যাকবার-এ "পুনরুদ্ধার" (৫ সেকেন্ড) |

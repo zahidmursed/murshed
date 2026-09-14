@@ -207,6 +207,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
+                    'প্রতিটি ছবি গ্যালারির Pictures/DakhilaCamera ফোল্ডারেও সেভ হয়।\n'
                     'টিপ: কিছু ফোনে File Manager "Android/data" ফোল্ডার দেখায় না — '
                     'তখন "পাথ কপি" করে ফাইল ম্যানেজারের অ্যাড্রেস বারে বসান।',
                     style: TextStyle(fontSize: 11, color: Colors.black54),

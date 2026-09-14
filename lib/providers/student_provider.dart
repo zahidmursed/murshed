@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/forik_stat.dart';
 import '../models/student.dart';
+import '../utils/gallery_saver.dart';
 
 class StudentProvider extends ChangeNotifier {
   List<Student> _students = [];
@@ -140,6 +141,9 @@ class StudentProvider extends ChangeNotifier {
         break;
       }
     }
+    // গ্যালারির কপিও মুছে দিই (best-effort)
+    await GallerySaver.deleteFromGallery(fileName: '$dakhila.jpg');
+
     await DatabaseHelper.instance.clearImage(dakhila);
     for (final list in [_students, _filtered]) {
       final idx = list.indexWhere((s) => s.dakhila == dakhila);

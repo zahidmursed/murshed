@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../db/database_helper.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
+import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
 import 'review_screen.dart';
 
@@ -215,6 +216,14 @@ class _CameraScreenState extends State<CameraScreen> {
 
       await DatabaseHelper.instance
           .updateImage(widget.student.dakhila, savePath);
+      if (!mounted) return;
+
+      // গ্যালারিতেও সেভ (best-effort — ব্যর্থ হলে অ্যাপ-ফোল্ডারের কপি থাকে);
+      // একই নামের আগের এন্ট্রি replace হয়, তাই retake-এ ডুপ্লিকেট হয় না
+      await GallerySaver.saveToGallery(
+        filePath: savePath,
+        fileName: '${widget.student.dakhila}.jpg',
+      );
       if (!mounted) return;
 
       await provider.markCaptured(widget.student.dakhila, savePath);

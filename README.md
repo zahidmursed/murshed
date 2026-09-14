@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.1.0+2 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.1.1+3 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -41,6 +41,8 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 
 ### 💾 স্টোরেজ
 - সেভ হয়: `Android/data/com.example.dakhila_camera/files/DakhilaCamera/{দাখিলা}.jpg`
+- **গ্যালারিতেও সেভ** — ফোনের গ্যালারির `Pictures/DakhilaCamera`-তেও যায় (MediaStore);
+  retake-এ replace হয়, delete-এ গ্যালারি কপিও মুছে যায় (Android 10+ permission-মুক্ত)
 - ⚙️ সেটিংসে **[ফোল্ডার খুলুন]** (সিস্টেম ফাইল ম্যানেজার) + **[পাথ কপি]** ফলব্যাক
 - শুধু CAMERA permission; ছবি/ডেটা কোথাও পাঠানো হয় না
 
@@ -57,7 +59,7 @@ flutter analyze              # 0 issues থাকা উচিত
 flutter build apk --release  # APK তৈরি
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.1.0-release.apk` (debug-signed,
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.1.1-release.apk` (debug-signed,
   ফোনে সরাসরি ইনস্টলযোগ্য)
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
@@ -117,8 +119,7 @@ lib/
 বিস্তারিত ব্যাকলগ: `PLAN.md` → **Phase 5**। মূল আইডিয়া:
 
 **কাছাকাছি (quick wins)**
-- Excel/CSV ইমপোর্ট • ছবি ফোনের গ্যালারিতেও সেভ (Pictures/DakhilaCamera)
-- ডার্ক মোড • ক্যাপচারে সাউন্ড/ভাইব্রেশন • মোছা ছবি Undo • মোড-সেটিংস মনে রাখা
+- Excel/CSV ইমপোর্ট • ডার্ক মোড • ক্যাপচারে সাউন্ড/ভাইব্রেশন • মোছা ছবি Undo • মোড-সেটিংস মনে রাখা
 
 **মাঝারি**
 - ছাপার জন্য **PDF শিট** (প্রতি পাতায় একাধিক পাসপোর্ট ছবি + দাখিলা ক্যাপশন)
