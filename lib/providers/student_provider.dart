@@ -156,6 +156,32 @@ class StudentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Settings: সব তোলা ছবি গ্যালারিতে (Pictures/DakhilaCamera) ব্যাকআপ —
+  /// একই নাম হলে replace হয়, তাই বারবার চালানো নিরাপদ।
+  /// রিটার্ন: সফলভাবে ব্যাকআপ হওয়া ছবির সংখ্যা।
+  Future<int> backupAllToGallery({
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final all = await DatabaseHelper.instance.getAllStudents();
+    final captured =
+        all.where((s) => s.isCaptured == 1 && s.imagePath != null).toList();
+    var done = 0;
+    var ok = 0;
+    for (final s in captured) {
+      final f = File(s.imagePath!);
+      if (await f.exists()) {
+        final saved = await GallerySaver.saveToGallery(
+          filePath: s.imagePath!,
+          fileName: '${s.dakhila}.jpg',
+        );
+        if (saved) ok++;
+      }
+      done++;
+      onProgress?.call(done, captured.length);
+    }
+    return ok;
+  }
+
   /// ডিভাইস থেকে বাছাই করা JSON ফাইল ইমপোর্ট (পুরনো ডেটার বদলে)।
   Future<int> importFromJsonFile(String filePath) async {
     final raw = await File(filePath).readAsString();

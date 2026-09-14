@@ -1,4 +1,4 @@
-package com.example.dakhila_camera
+package com.madrasa.dakhilacamera
 
 import android.content.ContentValues
 import android.net.Uri

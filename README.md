@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.1.1+3 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.2.0+4 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -40,9 +40,10 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - viewer থেকেই **retake / delete** — delete-এ ফাইল ও রেকর্ড দুটোই রিসেট হয়
 
 ### 💾 স্টোরেজ
-- সেভ হয়: `Android/data/com.example.dakhila_camera/files/DakhilaCamera/{দাখিলা}.jpg`
+- সেভ হয়: `Android/data/com.madrasa.dakhilacamera/files/DakhilaCamera/{দাখিলা}.jpg`
 - **গ্যালারিতেও সেভ** — ফোনের গ্যালারির `Pictures/DakhilaCamera`-তেও যায় (MediaStore);
   retake-এ replace হয়, delete-এ গ্যালারি কপিও মুছে যায় (Android 10+ permission-মুক্ত)
+- **গ্যালারি ব্যাকআপ বাটন** — ⚙️ সেটিংসে "সব ছবি গ্যালারিতে ব্যাকআপ" (পুরনো ছবিগুলো এক ক্লিকে, বারবার চালানো নিরাপদ)
 - ⚙️ সেটিংসে **[ফোল্ডার খুলুন]** (সিস্টেম ফাইল ম্যানেজার) + **[পাথ কপি]** ফলব্যাক
 - শুধু CAMERA permission; ছবি/ডেটা কোথাও পাঠানো হয় না
 
@@ -56,11 +57,12 @@ flutter pub get              # dependencies
 flutter run                  # ডিভাইস/এমুলেটরে চালান
 flutter test                 # ইউনিট টেস্ট (৯টি)
 flutter analyze              # 0 issues থাকা উচিত
-flutter build apk --release  # APK তৈরি
+flutter build apk --release  # APK তৈরি (universal)
+flutter build apk --release --split-per-abi  # ছোট APK (ABI অনুযায়ী আলাদা, ~16-20MB)
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.1.1-release.apk` (debug-signed,
-  ফোনে সরাসরি ইনস্টলযোগ্য)
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.2.0-arm64-release.apk` (~18.5MB,
+  আধুনিক ফোন) ও `DakhilaCamera-v1.2.0-armv7-release.apk` (পুরনো ফোন) — debug-signed
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
 
@@ -133,5 +135,6 @@ lib/
 ## ⚠️ নোট
 
 - বর্তমান APK **debug key**-এ signed — টেস্ট/সরাসরি ইনস্টলের জন্য; Play Store-এর জন্য নয়
-- applicationId এখনও `com.example.dakhila_camera` — শেষ রিলিজের আগে বদলাতে হবে
+- ✅ v1.2.0 থেকে applicationId = `com.madrasa.dakhilacamera` — **পুরনো (v1.1.x) ইনস্টলের
+  উপর আপডেট হবে না, fresh install লাগবে**; আগের ছবিগুলো গ্যালারিতে থেকে যাবে
 - বাংলা ফন্ট ডিফল্টভাবে ঠিক দেখায়; ডেটার নামগুলো Unicode বাংলা হতে হবে

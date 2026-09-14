@@ -18,6 +18,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _importing = false;
+  bool _backingUp = false;
+  String _backupStatus = '';
   String _folderPath = '';
 
   @override
@@ -100,6 +102,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Phase 4: পুরনো সব তোলা ছবি গ্যালারিতে ব্যাকআপ (best-effort, idempotent)।
+  Future<void> _backupAll() async {
+    final provider = context.read<StudentProvider>();
+    setState(() {
+      _backingUp = true;
+      _backupStatus = 'শুরু হচ্ছে...';
+    });
+    try {
+      final ok = await provider.backupAllToGallery(
+        onProgress: (done, total) {
+          if (mounted) setState(() => _backupStatus = 'চলছে... $done/$total');
+        },
+      );
+      if (!mounted) return;
+      setState(() => _backupStatus = 'শেষ — $ok টি ছবি ব্যাকআপ হয়েছে');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$ok টি ছবি গ্যালারিতে ব্যাকআপ হয়েছে ✓')),
+      );
+    } catch (e) {
+      debugPrint('Backup all failed: $e');
+      if (mounted) setState(() => _backupStatus = 'ব্যর্থ — আবার চেষ্টা করুন');
+    } finally {
+      if (mounted) setState(() => _backingUp = false);
+    }
+  }
+
   /// DocumentsUI (সিস্টেম ফাইল ম্যানেজার) দিয়ে আউটপুট ফোল্ডার খোলার চেষ্টা।
   Future<void> _openFolder() async {
     if (_folderPath.isEmpty) return;
@@ -154,6 +182,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       'ডিভাইস থেকে JSON ফাইল বেছে নিন। নতুন ডেটা পুরনোটার বদলে '
                       'বসবে — একই দাখিলার তোলা ছবির হিসাব থেকে যাবে।'),
                   onTap: _importing ? null : _importJson,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: _backingUp
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.backup, color: Colors.teal),
+                  title: const Text('সব ছবি গ্যালারিতে ব্যাকআপ'),
+                  subtitle: Text(_backupStatus.isEmpty
+                      ? 'তোলা সব ছবি গ্যালারির Pictures/DakhilaCamera-তে কপি হবে '
+                          '(uninstall করলেও থাকবে)'
+                      : _backupStatus),
+                  onTap: _backingUp ? null : _backupAll,
                 ),
                 const Divider(height: 1),
                 ListTile(
