@@ -104,7 +104,7 @@ Future<String> exportForikWise({String? className}) async {
 }
 ```
 
-### Phase 5B - QUICK WINS (1 দিন) — v1.6.0 ✅ সম্পন্ন (2026-09-14)
+### Phase 5B - QUICK WINS (1 দিন) — v1.6.0 ✅ সম্পন্ন (2026-09-14) • 🔧 v1.6.1 hotfix
 
 | ফিচার | সময় |
 |---|---|
@@ -113,6 +113,11 @@ Future<String> exportForikWise({String? className}) async {
 | **Settings Persist** ✅ (`shared_preferences` — passport/serial/grid/theme; provider কনস্ট্রাক্টরে লোড) | করা হয়েছে |
 | **Undo Delete** ✅ (ট্র্যাশ ফোল্ডার + ৫ সেকেন্ড স্ন্যাকবার "পুনরুদ্ধার"; retake হলে restore স্কিপ) | করা হয়েছে |
 | **Shutter Sound + Haptic** ✅ (`SystemSound.alert` + `HapticFeedback.mediumImpact`) | করা হয়েছে |
+
+> **🔧 v1.6.1 hotfix:** ক্যামেরায় "type 'String' is not a subtype of type 'bool'" error —
+> `GallerySaver` native রিপ্লাই টাইপ ভুল পড়ছিল (saveToGallery → String URI,
+> deleteFromGallery → int count; Dart ধরছিল bool)। সঠিক টাইপ + সব channel call-এ
+> বিস্তৃত catch + regression টেস্ট (`test/gallery_saver_test.dart`)।
 
 ### Phase 5C - QUALITY (1 দিন) — v1.7.0
 

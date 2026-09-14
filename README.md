@@ -4,7 +4,7 @@
 Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠানের নিজস্ব ডেটা (JSON) ইমপোর্ট করে
 ক্লাস/ফরিক ধরে সবার ছবি গোছানো যায়, কে বাদ পড়ল তা এক নজরে দেখা যায়।
 
-**বর্তমান ভার্সন:** 1.6.0+7 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
+**বর্তমান ভার্সন:** 1.6.1+8 • Flutter 3.47 • টার্গেট: Android • ইন্টারনেট লাগে না
 
 ---
 
@@ -77,8 +77,8 @@ flutter build apk --release  # APK তৈরি (universal)
 flutter build apk --release --split-per-abi  # ছোট APK (ABI অনুযায়ী আলাদা, ~16-20MB)
 ```
 
-- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.5.1-arm64-release.apk` (~19.4MB,
-  আধুনিক ফোন) ও `DakhilaCamera-v1.5.1-armv7-release.apk` (পুরনো ফোন) — debug-signed
+- রেডিমেড APK: রিপো রুটে `DakhilaCamera-v1.6.1-arm64-release.apk` (~20.2MB,
+  আধুনিক ফোন) ও `DakhilaCamera-v1.6.1-armv7-release.apk` (পুরনো ফোন) — debug-signed
 - Windows-এ Kotlin cache lock error এলে দেখুন: `android/gradle.properties`-এ
   `kotlin.incremental=false` (এই প্রোজেক্টে সেট করা আছে)
 

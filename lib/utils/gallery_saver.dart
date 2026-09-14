@@ -10,40 +10,37 @@ class GallerySaver {
   static const String album = 'DakhilaCamera';
 
   /// ছবিটি গ্যালারিতে সেভ/আপডেট করে (একই নামের আগের এন্ট্রি replace হয়)।
-  /// ব্যর্থ হলে false — অ্যাপ-ফোল্ডারের কপি নিরাপদ থাকে।
+  /// Native side URI (String) ফেরত দেয়। ব্যর্থ হলে false —
+  /// অ্যাপ-ফোল্ডারের কপি নিরাপদ থাকে।
   static Future<bool> saveToGallery({
     required String filePath,
     required String fileName,
   }) async {
     try {
-      final ok = await _channel.invokeMethod<bool>('saveToGallery', {
+      final uri = await _channel.invokeMethod<String>('saveToGallery', {
         'path': filePath,
         'fileName': fileName,
         'album': album,
       });
-      return ok ?? false;
-    } on PlatformException catch (e) {
-      debugPrint('Gallery save failed: ${e.code} ${e.message}');
-      return false;
-    } on MissingPluginException {
-      debugPrint('GallerySaver: platform channel not available');
+      return uri != null && uri.isNotEmpty;
+    } catch (e) {
+      // PlatformException/TypeError — যেকোনো ব্যর্থতায় ক্যাপচার ফ্লো চলবে
+      debugPrint('Gallery save failed: $e');
       return false;
     }
   }
 
   /// গ্যালারি থেকে এই দাখিলার ছবি মুছে দেয় (নিজের সেভ করা এন্ট্রি)।
+  /// Native side মোছা এন্ট্রির সংখ্যা (int) ফেরত দেয় — exception না হলেই সফল।
   static Future<bool> deleteFromGallery({required String fileName}) async {
     try {
-      final ok = await _channel.invokeMethod<bool>('deleteFromGallery', {
+      await _channel.invokeMethod<dynamic>('deleteFromGallery', {
         'fileName': fileName,
         'album': album,
       });
-      return ok ?? false;
-    } on PlatformException catch (e) {
-      debugPrint('Gallery delete failed: ${e.code} ${e.message}');
-      return false;
-    } on MissingPluginException {
-      debugPrint('GallerySaver: platform channel not available');
+      return true;
+    } catch (e) {
+      debugPrint('Gallery delete failed: $e');
       return false;
     }
   }
@@ -55,6 +52,8 @@ class GallerySaver {
       final names =
           await _channel.invokeMethod<List<dynamic>>('listGalleryPhotos');
       return names?.cast<String>() ?? const [];
+    } on PlatformException {
+      rethrow; // PERMISSION_DENIED — settings-এ দেখানো হয়
     } on MissingPluginException {
       debugPrint('GallerySaver: platform channel not available');
       return const [];
