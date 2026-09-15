@@ -60,3 +60,4 @@ app.*.map.json
 # release signing (never commit!)
 key.properties
 android/key/
+android/app/*.jks

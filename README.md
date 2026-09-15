@@ -29,7 +29,7 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - হেডারে **মোট / তোলা / বাকি** লাইভ স্ট্যাট
 
 ### 📸 ক্যামেরা
-- **Passport Mode** — মাঝখান থেকে 3:4 ক্রপ করে **600×800** JPEG (quality 90)
+- **Passport Mode** — মাঝখান থেকে 431:531 অনুপাতে ক্রপ করে **431×531** JPEG (quality 92), হালকা auto brightness/contrast/fresh enhancement
 - **Original Mode** — যেমন তোলা তেমন সেভ
 - **Serial Mode** — ছবি সেভ হলে স্বয়ংক্রিয়ভাবে পরের দাখিলার প্রস্তাব
 - **Review Screen** — সেভের পর full-screen প্রিভিউ: [আবার তুলুন] [মুছুন] [পরের >]
@@ -47,8 +47,8 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - AppBar-এ 🖼 আইকনে **ছবি গ্যালারি গ্রিড** — শুধু তোলা ছবি, দ্রুত ভেরিফিকেশন
 
 ### 📤 এক্সপোর্ট (AppBar-এ 🗜 আইকন) — v2, doc-aware
-- **ZIP এক্সপোর্ট v2** — ছাত্র-প্রতি ফোল্ডারে **সব ডক** (`ক্লাস/ফরিক/দাখিলা_নাম/দাখিলা_PHOTO.jpg`,
-  `281_BIRTH.jpg`, ...) + `_reports/missing.csv` + `_reports/summary.txt`;
+- **ZIP এক্সপোর্ট v2** — ছাত্র-প্রতি ফোল্ডারের ভিতরে **PHOTO/BIRTH/FORM** সাবফোল্ডারে সব ডক
+  (`ক্লাস/ফরিক/দাখিলা_নাম/PHOTO/281.jpg`, `BIRTH/281.jpg`, ...) + `_reports/missing.csv` + `_reports/summary.txt`;
   streaming encoder — হাজার ফাইলেও মেমোরি নিরাপদ
 - **Status Report (CSV)** — প্রতি ছাত্রের Photo/Birth/Form yes/no + MissingCount
   (UTF-8 BOM, Excel-এ বাংলা ঠিক দেখায়)
@@ -68,7 +68,7 @@ Flutter অ্যাপ — যেমন `281.jpg`। প্রতিষ্ঠ�
 - DB **v4**: `documents` টেবিল (UNIQUE(dakhila, doc_type)) + `students`-এ
   `marhala`/`exam_year`/`total_docs` কলাম — পুরনো ছবি অটো-মাইগ্রেট (copy-not-move)
 - `services/storage_service.dart` — ছাত্র-প্রতি ফোল্ডার লেআউট
-  `DakhilaCamera/v2/<ক্লাস>/Forik_N/<দাখিলা>/`; ⚙️ সেটিংসে **"স্টোরেজ সাজান"** বাটনে
+  `DakhilaCamera/v2/<ক্লাস>/Forik_N/<দাখিলা>/<PHOTO|BIRTH|FORM>/`; ⚙️ সেটিংসে **"স্টোরেজ সাজান"** বাটনে
   পুরনো flat ছবি নতুন লেআউটে মাইগ্রেট
 - Document Scanner (ML Kit edge-detect) — পরের ধাপে
 

@@ -16,7 +16,14 @@ import 'review_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   final Student student;
-  const CameraScreen({super.key, required this.student});
+
+  /// PHOTO = পাসপোর্ট ক্রপ সহ; BIRTH/FORM = ডকুমেন্ট মোড (পুরো পেজ, ক্রপ ছাড়া)
+  final DocType docType;
+  const CameraScreen({
+    super.key,
+    required this.student,
+    this.docType = DocType.PHOTO,
+  });
   @override
   State<CameraScreen> createState() => _CameraScreenState();
 }
@@ -26,6 +33,7 @@ class _CameraScreenState extends State<CameraScreen> {
   List<CameraDescription>? _cameras;
   bool _init = false;
   bool _saving = false;
+  bool _readyToCapture = false;
   bool _switching = false;
   bool _isTorchOn = false;
   int _cameraIndex = 0;
@@ -45,6 +53,7 @@ class _CameraScreenState extends State<CameraScreen> {
     setState(() {
       _error = null;
       _init = false;
+      _readyToCapture = false;
     });
     await _controller?.dispose();
     _controller = null;
@@ -88,11 +97,24 @@ class _CameraScreenState extends State<CameraScreen> {
       _minZoom = 1.0;
       _maxZoom = 1.0;
     }
+    // নতুন ক্যামেরা/লেন্সে AF ও AE auto mode-এ ফিরিয়ে সামান্য settle time দিই।
+    // সব ফোনে status API নেই, তাই এটি conservative 450ms guard।
+    try {
+      await controller.setFocusMode(FocusMode.auto);
+      await controller.setExposureMode(ExposureMode.auto);
+    } catch (_) {
+      // কিছু front camera এই controls expose করে না।
+    }
     if (!mounted) {
       await controller.dispose();
       return;
     }
     setState(() => _init = true);
+    Future.delayed(const Duration(milliseconds: 450), () {
+      if (mounted && identical(_controller, controller)) {
+        setState(() => _readyToCapture = true);
+      }
+    });
   }
 
   /// pinch-to-zoom — scale অনুযায়ী zoom level বাড়ায়/কমায়।
@@ -178,7 +200,10 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _takePicture() async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized || _saving) {
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _saving ||
+        !_readyToCapture) {
       return;
     }
     // await-এর আগেই capture — context যেন async gap-এ ব্যবহার না হয়
@@ -188,39 +213,67 @@ class _CameraScreenState extends State<CameraScreen> {
       final XFile file = await controller.takePicture();
       if (!mounted) return;
 
+      final isPhoto = widget.docType == DocType.PHOTO;
+      // Camera plugin-এর cache পরিষ্কার হয়ে যেতে পারে, তাই review/crop-এর আগে
+      // original capture-টি temporary storage-এ রাখি। Final JPEG কখনও এটিকে বদলায় না।
+      String? originalCapturePath;
+      int qualityFlags = 0;
+      if (isPhoto && provider.isPassportMode) {
+        originalCapturePath =
+            await StorageService.temporaryCapturePath(widget.student.dakhila);
+        await File(file.path).copy(originalCapturePath);
+        qualityFlags = await assessPhotoQualityInIsolate(
+          await File(originalCapturePath).readAsBytes(),
+        );
+      }
       // Phase 7: নতুন ছবি v2 ফোল্ডার-লেআউটে সেভ হয়
-      // (ছাত্র-প্রতি ফোল্ডার: v2/ক্লাস/Forik_N/দাখিলা/দাখিলা_PHOTO.jpg)
+      // (ছাত্র-প্রতি ফোল্ডার: v2/ক্লাস/Forik_N/দাখিলা/TYPE/দাখিলা.jpg)
       final savePath = await StorageService.documentPath(
         widget.student.className,
         widget.student.forikNo,
         widget.student.dakhila,
-        DocType.PHOTO,
+        widget.docType,
         'jpg',
       );
 
-      if (provider.isPassportMode) {
-        // Passport size: 600×800 (3:4) — isolate-এ center crop + resize
-        final bytes = await File(file.path).readAsBytes();
-        final processed = await processPassportInIsolate(bytes);
+      if (isPhoto && provider.isPassportMode) {
+        // Passport size: 431×531 — isolate-এ center crop + auto-enhance + resize
+        final bytes = await File(originalCapturePath!).readAsBytes();
+        final processed = await processPassportInIsolate(
+          bytes,
+          provider.passportPreset,
+          provider.isAutoEnhancementEnabled,
+        );
         if (processed != null) {
           await File(savePath).writeAsBytes(processed);
         } else {
           await File(file.path).copy(savePath);
         }
       } else {
-        // Original mode — যেমন তোলা তেমন সেভ
+        // Original mode / ডকুমেন্ট মোড — পুরো পেজ যেমন তোলা তেমন সেভ
         await File(file.path).copy(savePath);
       }
 
-      await DatabaseHelper.instance
-          .updateImage(widget.student.dakhila, savePath);
+      if (isPhoto) {
+        // PHOTO: image_path mirror + PHOTO doc (updateImage-ই সামলায়)
+        await DatabaseHelper.instance
+            .updateImage(widget.student.dakhila, savePath);
+      } else {
+        // BIRTH/FORM: documents টেবিলে সেভ
+        await provider.markDocumentSaved(
+            widget.student.dakhila, widget.docType, savePath);
+      }
       if (!mounted) return;
 
       // গ্যালারিতেও সেভ (best-effort — ব্যর্থ হলে অ্যাপ-ফোল্ডারের কপি থাকে);
-      // একই নামের আগের এন্ট্রি replace হয়, তাই retake-এ ডুপ্লিকেট হয় না
+      // PHOTO: পুরনো নাম (281.jpg) বজায় থাকে যাতে retake-এ replace হয়;
+      // BIRTH/FORM: 281_BIRTH.jpg / 281_FORM.jpg
+      final galleryName = isPhoto
+          ? '${widget.student.dakhila}.jpg'
+          : '${widget.student.dakhila}_${widget.docType.name}.jpg';
       await GallerySaver.saveToGallery(
         filePath: savePath,
-        fileName: '${widget.student.dakhila}.jpg',
+        fileName: galleryName,
       );
       if (!mounted) return;
 
@@ -228,24 +281,34 @@ class _CameraScreenState extends State<CameraScreen> {
       HapticFeedback.mediumImpact();
       SystemSound.play(SystemSoundType.alert);
 
-      await provider.markCaptured(widget.student.dakhila, savePath);
-      if (!mounted) return;
+      if (isPhoto) {
+        await provider.markCaptured(widget.student.dakhila, savePath);
+        if (!mounted) return;
 
-      // রিভিউ দেখাই — ভুল ছবি হলে আবার তোলা যাবে;
-      // serial mode-এ পরের দাখিলায় সরাসরি যাওয়া যাবে।
-      final next = provider.isSerialMode
-          ? provider.getNext(widget.student.dakhila)
-          : null;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ReviewScreen(
-            student: widget.student,
-            imagePath: savePath,
-            next: next,
+        // রিভিউ দেখাই — ভুল ছবি হলে আবার তোলা যাবে;
+        // serial mode-এ পরের দাখিলায় সরাসরি যাওয়া যাবে।
+        final next = provider.isSerialMode
+            ? provider.getNext(widget.student.dakhila)
+            : null;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ReviewScreen(
+              student: widget.student,
+              imagePath: savePath,
+              originalCapturePath: originalCapturePath,
+              qualityFlags: qualityFlags,
+              next: next,
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${widget.docType.label} সেভ হয়েছে ✓')),
+        );
+        Navigator.pop(context); // ড্যাশবোর্ডে ফেরত
+      }
     } catch (e) {
       debugPrint('CameraScreen Error: $e');
       if (mounted) {
@@ -313,8 +376,10 @@ class _CameraScreenState extends State<CameraScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(
-            'দাখিলা: ${widget.student.dakhila} — ${widget.student.stuName}'),
+        title: Text(widget.docType == DocType.PHOTO
+            ? 'দাখিলা: ${widget.student.dakhila} — ${widget.student.stuName}'
+            : '${widget.docType.label}: ${widget.student.dakhila} — '
+                '${widget.student.stuName}'),
         backgroundColor: Colors.teal,
       ),
       body: _error != null
@@ -332,6 +397,54 @@ class _CameraScreenState extends State<CameraScreen> {
                         child: CameraPreview(_controller!),
                       ),
                     ),
+                    // চূড়ান্ত 431×531 crop-এর ভিজ্যুয়াল গাইড — ছবি তোলার
+                    // আগেই মুখ/কাঁধ সঠিক জায়গায় রাখা সহজ হয়।
+                    if (widget.docType == DocType.PHOTO &&
+                        provider.isPassportMode)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: Center(
+                            // একই AspectRatio ব্যবহার করায় guide-টি letterbox
+                            // বাদ দিয়ে CameraPreview-এর দৃশ্যমান অংশেই থাকে।
+                            child: AspectRatio(
+                              aspectRatio: _controller!.value.aspectRatio,
+                              child: Center(
+                                child: FractionallySizedBox(
+                                  widthFactor: 0.62,
+                                  child: AspectRatio(
+                                    aspectRatio: 431 / 531,
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                            color: Colors.white70, width: 2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Align(
+                                        alignment: Alignment.topCenter,
+                                        child: Padding(
+                                          padding: EdgeInsets.only(top: 5),
+                                          child: Text(
+                                            '431 × 531',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11,
+                                              shadows: [
+                                                Shadow(
+                                                    color: Colors.black,
+                                                    blurRadius: 3),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     // 3x3 rule-of-thirds grid — মুখ মাঝখানে রাখতে সাহায্য করে
                     if (provider.isGridMode)
                       Positioned.fill(
@@ -380,9 +493,11 @@ class _CameraScreenState extends State<CameraScreen> {
                             ),
                             Consumer<StudentProvider>(
                               builder: (_, p, __) => Text(
-                                p.isPassportMode
-                                    ? 'পাসপোর্ট সাইজ (600×800)'
-                                    : 'অরিজিনাল সাইজ',
+                                widget.docType != DocType.PHOTO
+                                    ? 'ডকুমেন্ট মোড (পুরো পেজ সেভ হবে)'
+                                    : p.isPassportMode
+                                        ? 'পাসপোর্ট (431×531, ${p.isAutoEnhancementEnabled ? p.passportPreset.label : 'Natural'})'
+                                        : 'অরিজিনাল সাইজ',
                                 style:
                                     const TextStyle(color: Colors.yellowAccent),
                               ),
@@ -423,7 +538,7 @@ class _CameraScreenState extends State<CameraScreen> {
                       left: 0,
                       right: 0,
                       child: Center(
-                        child: _saving
+                        child: _saving || !_readyToCapture
                             ? const CircularProgressIndicator()
                             : FloatingActionButton.large(
                                 backgroundColor: Colors.white,

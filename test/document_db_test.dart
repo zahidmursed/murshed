@@ -69,15 +69,28 @@ void main() {
     final afterBirth = await helper.getAllStudents();
     expect(afterBirth.firstWhere((s) => s.dakhila == '281').totalDocs, 2);
 
-    // ছবি মুছলে PHOTO doc বাদ, BIRTH থাকে (total_docs 1)
+    // FORM আলাদা row হিসেবে থাকে—PHOTO/BIRTH-এর উপর overwrite হয় না।
+    await helper.upsertDocument(const StudentDocument(
+      dakhila: '281',
+      type: DocType.FORM,
+      filePath: '/x/281_FORM.jpg',
+      ext: 'jpg',
+      mimeType: 'image/jpeg',
+    ));
+    final allDocs = await helper.getAllDocumentsMap();
+    expect(allDocs['281']!.keys,
+        containsAll(<DocType>[DocType.PHOTO, DocType.BIRTH, DocType.FORM]));
+
+    // ছবি মুছলে শুধু PHOTO বাদ, BIRTH ও FORM থাকে (total_docs 2)
     await helper.clearImage('281');
     final afterClear = await helper.getAllStudents();
     final cleared = afterClear.firstWhere((s) => s.dakhila == '281');
     expect(cleared.isCaptured, 0);
-    expect(cleared.totalDocs, 1);
+    expect(cleared.totalDocs, 2);
     final docsAfterClear = await helper.getAllDocumentsMap();
     expect(docsAfterClear['281']!.containsKey(DocType.PHOTO), isFalse);
     expect(docsAfterClear['281']!.containsKey(DocType.BIRTH), isTrue);
+    expect(docsAfterClear['281']!.containsKey(DocType.FORM), isTrue);
   });
 
   test('fresh DB creates v4 schema with documents table', () async {

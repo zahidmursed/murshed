@@ -4,17 +4,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'providers/student_provider.dart';
 import 'screens/list_screen.dart';
+import 'screens/trial_expired_screen.dart';
+import 'services/trial_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
-  runApp(MyApp(prefs: prefs));
+  final trialStatus = await TrialService.load(prefs);
+  runApp(MyApp(prefs: prefs, trialStatus: trialStatus));
 }
 
 class MyApp extends StatelessWidget {
   final SharedPreferences prefs;
+  final TrialStatus trialStatus;
 
-  const MyApp({super.key, required this.prefs});
+  const MyApp({super.key, required this.prefs, required this.trialStatus});
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +37,9 @@ class MyApp extends StatelessWidget {
             ),
           ),
           themeMode: provider.themeMode,
-          home: const ListScreen(),
+          home: trialStatus.isExpired
+              ? TrialExpiredScreen(expiresAt: trialStatus.expiresAt!)
+              : const ListScreen(),
         ),
       ),
     );

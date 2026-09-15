@@ -53,8 +53,8 @@ void main() {
     expect(File(zipPath).existsSync(), isTrue);
     final archive = ZipDecoder().decodeBytes(File(zipPath).readAsBytesSync());
     final names = archive.files.map((f) => f.name).toList();
-    expect(names.any((n) => n.endsWith('281_PHOTO.jpg')), isTrue);
-    expect(names.any((n) => n.endsWith('281_BIRTH.jpg')), isTrue);
+    expect(names.any((n) => n.endsWith('PHOTO/281.jpg')), isTrue);
+    expect(names.any((n) => n.endsWith('BIRTH/281.jpg')), isTrue);
     expect(names.any((n) => n.contains('missing.csv')), isTrue);
     expect(names.any((n) => n.contains('summary.txt')), isTrue);
 
