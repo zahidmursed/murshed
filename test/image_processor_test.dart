@@ -71,4 +71,77 @@ void main() {
       expect(processPassportBytes(Uint8List.fromList([1, 2, 3, 4])), isNull);
     });
   });
+
+  group('document scanner helpers', () {
+    img.Image solid(int w, int h, int r, int g, int b) {
+      final im = img.Image(width: w, height: h);
+      img.fill(im, color: img.ColorRgb8(r, g, b));
+      return im;
+    }
+
+    test('mergePagesVerticallyInIsolate stacks pages (width preserved)',
+        () async {
+      final p1 = Uint8List.fromList(img.encodeJpg(solid(40, 20, 200, 0, 0)));
+      final p2 = Uint8List.fromList(img.encodeJpg(solid(40, 10, 0, 0, 200)));
+      final out = await mergePagesVerticallyInIsolate([p1, p2]);
+      expect(out, isNotNull);
+      final decoded = img.decodeImage(out!);
+      expect(decoded, isNotNull);
+      expect(decoded!.width, 40);
+      expect(decoded.height, 30);
+      // উপরে লাল, নিচে নীল
+      final top = decoded.getPixel(20, 5);
+      expect(top.r, greaterThan(top.b));
+      final bottom = decoded.getPixel(20, 25);
+      expect(bottom.b, greaterThan(bottom.r));
+    });
+
+    test('enhanceDocument gray makes channels equal', () async {
+      final src = Uint8List.fromList(img.encodeJpg(solid(60, 40, 40, 160, 220)));
+      final out =
+          await enhanceDocumentInIsolate(src, DocumentFilterMode.gray);
+      expect(out, isNotNull);
+      final decoded = img.decodeImage(out!);
+      final px = decoded!.getPixel(30, 20);
+      expect((px.r - px.g).abs(), lessThan(30));
+      expect((px.g - px.b).abs(), lessThan(30));
+    });
+
+    test('enhanceDocument bw collapses to dark text / bright paper', () async {
+      final page = img.Image(width: 60, height: 40);
+      img.fill(page, color: img.ColorRgb8(240, 240, 240));
+      img.fillRect(
+          page, x1: 0, y1: 0, x2: 59, y2: 19, color: img.ColorRgb8(30, 30, 30));
+      final src = Uint8List.fromList(img.encodeJpg(page));
+      final out = await enhanceDocumentInIsolate(src, DocumentFilterMode.bw);
+      expect(out, isNotNull);
+      final decoded = img.decodeImage(out!);
+      final bright = decoded!.getPixel(30, 35).luminance;
+      final dark = decoded.getPixel(30, 5).luminance;
+      expect(bright, greaterThan(180));
+      expect(dark, lessThan(100));
+    });
+
+    test('enhanceDocument magic brightens the bright regions', () async {
+      final page = img.Image(width: 60, height: 40);
+      img.fill(page, color: img.ColorRgb8(40, 40, 40));
+      img.fillRect(
+          page, x1: 0, y1: 0, x2: 59, y2: 19, color: img.ColorRgb8(90, 90, 90));
+      final src = Uint8List.fromList(img.encodeJpg(page));
+      final inLuma = img.decodeImage(src)!.getPixel(30, 5).luminance;
+      final out = await enhanceDocumentInIsolate(src, DocumentFilterMode.magic);
+      final decoded = img.decodeImage(out!);
+      final outLuma = decoded!.getPixel(30, 5).luminance;
+      expect(outLuma, greaterThan(inLuma + 100));
+    });
+
+    test('limitLongSideInIsolate caps the long side', () async {
+      final src = Uint8List.fromList(img.encodeJpg(solid(800, 400, 10, 200, 10)));
+      final out = await limitLongSideInIsolate(src, maxSide: 400);
+      expect(out, isNotNull);
+      final decoded = img.decodeImage(out!);
+      expect(decoded!.width, 400);
+      expect(decoded.height, 200);
+    });
+  });
 }

@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+/// ডকুমেন্ট স্ক্যান-পরবর্তী ফিল্টার মোড।
+enum DocumentFilterMode { original, magic, gray, bw }
+
 /// চূড়ান্ত পাসপোর্ট ছবির নির্ধারিত মাপ।
 const int passportWidth = 431;
 const int passportHeight = 531;
@@ -214,5 +217,164 @@ Future<String?> prepareCropSource({
     await File(destPath)
         .writeAsBytes(img.encodeJpg(out, quality: 95), flush: true);
     return destPath;
+  });
+}
+
+/// স্ক্যান করা একাধিক পেজ উল্লম্বভাবে জোড়া হয়ে একটি JPEG দেয় (isolate-এ)।
+/// প্রতিটি পেজ সবচেয়ে চওড়া পেজের মাপে রিসাইজ হয়; ডিকোড ব্যর্থ পেজ বাদ যায়।
+Future<Uint8List?> mergePagesVerticallyInIsolate(List<Uint8List> pages) {
+  return Isolate.run(() async {
+    final decoded = <img.Image>[];
+    for (final page in pages) {
+      final d = img.decodeImage(page);
+      if (d != null) decoded.add(d);
+    }
+    if (decoded.isEmpty) return null;
+    final int maxW =
+        decoded.map((d) => d.width).reduce((a, b) => a > b ? a : b);
+    final heights = decoded
+        .map((d) => (d.height * maxW / d.width).round())
+        .toList(growable: false);
+    final int totalH = heights.reduce((a, b) => a + b);
+    var canvas = img.Image(width: maxW, height: totalH);
+    var y = 0;
+    for (var i = 0; i < decoded.length; i++) {
+      final page = decoded[i];
+      final scaled = heights[i] == page.height && maxW == page.width
+          ? page
+          : img.copyResize(page, width: maxW, height: heights[i]);
+      canvas = img.compositeImage(canvas, scaled, dstX: 0, dstY: y);
+      y += heights[i];
+    }
+    return img.encodeJpg(canvas, quality: 90);
+  });
+}
+
+int _otsuThreshold(img.Image image) {
+  final hist = List<int>.filled(256, 0);
+  for (final p in image) {
+    hist[p.luminance.round().clamp(0, 255)]++;
+  }
+  final total = image.width * image.height;
+  var sum = 0;
+  for (var i = 0; i < 256; i++) {
+    sum += i * hist[i];
+  }
+  var sumB = 0;
+  var wB = 0;
+  var best = 0.0;
+  var threshold = 128;
+  for (var t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB == 0) continue;
+    final wF = total - wB;
+    if (wF == 0) break;
+    sumB += t * hist[t];
+    final mB = sumB / wB;
+    final mF = (sum - sumB) / wF;
+    final between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) {
+      best = between;
+      threshold = t;
+    }
+  }
+  return threshold;
+}
+
+/// লুমিন্যান্স > threshold → সাদা, বাকি → কালো (ফটোকপি স্টাইল)।
+/// strict '>' — নইলে two-tone ছবিতে Otsu-প্লাটোর ক্ষেত্রে অন্ধকার অংশও সাদা হয়।
+img.Image _applyThreshold(img.Image image, int threshold) {
+  for (final p in image) {
+    final lum = p.luminance.round().clamp(0, 255);
+    final v = lum > threshold ? 255 : 0;
+    p.r = v;
+    p.g = v;
+    p.b = v;
+  }
+  return image;
+}
+
+/// ফটোকপি-স্টাইল ফিল্টার (isolate-এ):
+/// magic = চ্যানেল-প্রতি ২–৯৮ পার্সেন্টাইল স্ট্রেচ (ব্যাকগ্রাউন্ড সাদা,
+/// লেখা গাঢ়, ছায়া কমে)। ডিকোড ব্যর্থ হলে null।
+img.Image _magicColor(img.Image image) {
+  final histR = List<int>.filled(256, 0);
+  final histG = List<int>.filled(256, 0);
+  final histB = List<int>.filled(256, 0);
+  var total = 0;
+  for (final p in image) {
+    histR[p.r.toInt().clamp(0, 255)]++;
+    histG[p.g.toInt().clamp(0, 255)]++;
+    histB[p.b.toInt().clamp(0, 255)]++;
+    total++;
+  }
+  int percentile(List<int> hist, double fraction) {
+    final target = (total * fraction).round();
+    var acc = 0;
+    for (var v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc >= target) return v;
+    }
+    return 255;
+  }
+
+  int mapChannel(int v, int low, int high) {
+    if (high <= low) return v.clamp(0, 255);
+    final scaled = ((v - low) * 255 / (high - low)).round().clamp(0, 255);
+    // হালকা কনট্রাস্ট বুস্ট
+    return ((scaled - 128) * 1.06 + 128).round().clamp(0, 255);
+  }
+
+  final lowR = percentile(histR, 0.02);
+  final highR = percentile(histR, 0.98);
+  final lowG = percentile(histG, 0.02);
+  final highG = percentile(histG, 0.98);
+  final lowB = percentile(histB, 0.02);
+  final highB = percentile(histB, 0.98);
+  for (final p in image) {
+    p.r = mapChannel(p.r.toInt(), lowR, highR);
+    p.g = mapChannel(p.g.toInt(), lowG, highG);
+    p.b = mapChannel(p.b.toInt(), lowB, highB);
+  }
+  return image;
+}
+
+/// ডকুমেন্ট ফিল্টার (isolate-এ):
+/// original = অপরিবর্তিত; magic = ব্যাকগ্রাউন্ড সাদা/লেখা গাঢ়;
+/// gray = সাদাকালো; bw = থ্রেশহোল্ড (শুধু লেখা)। ডিকোড ব্যর্থ হলে null।
+Future<Uint8List?> enhanceDocumentInIsolate(
+    Uint8List bytes, DocumentFilterMode mode) {
+  return Isolate.run(() {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+    switch (mode) {
+      case DocumentFilterMode.original:
+        return bytes;
+      case DocumentFilterMode.gray:
+        return img.encodeJpg(img.grayscale(decoded), quality: 88);
+      case DocumentFilterMode.bw:
+        final gray = img.grayscale(decoded);
+        final threshold = _otsuThreshold(gray);
+        return img.encodeJpg(_applyThreshold(gray, threshold), quality: 88);
+      case DocumentFilterMode.magic:
+        return img.encodeJpg(_magicColor(decoded), quality: 90);
+    }
+  });
+}
+
+/// ছবির লম্বা বাহু [maxSide]-এর বেশি হলে ছোট করে JPEG ফেরত দেয় (isolate-এ)।
+/// ডিকোড ব্যর্থ হলে null।
+Future<Uint8List?> limitLongSideInIsolate(Uint8List bytes,
+    {required int maxSide}) {
+  return Isolate.run(() {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+    final int w = decoded.width;
+    final int h = decoded.height;
+    if (w <= maxSide && h <= maxSide) return img.encodeJpg(decoded, quality: 90);
+    final double ratio = w >= h ? maxSide / w : maxSide / h;
+    final resized = img.copyResize(decoded,
+        width: (w * ratio).round(), height: (h * ratio).round());
+    return img.encodeJpg(resized, quality: 90);
   });
 }

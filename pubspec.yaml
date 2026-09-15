@@ -2,7 +2,7 @@
 name: dakhila_camera
 description: Camera app that saves image by DAKHILA value
 publish_to: 'none'
-version: 2.1.1+19
+version: 2.1.1+20
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -25,6 +25,7 @@ dependencies:
   pdf: 3.11.0
   excel: ^4.0.6
   shared_preferences: ^2.5.5
+  google_mlkit_document_scanner: ^0.6.1
 
 dev_dependencies:
   flutter_test:

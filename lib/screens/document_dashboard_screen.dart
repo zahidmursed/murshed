@@ -10,6 +10,7 @@ import '../providers/student_provider.dart';
 import '../services/export_service.dart';
 import '../utils/gallery_saver.dart';
 import 'camera_screen.dart';
+import 'document_scanner_screen.dart';
 import 'image_viewer_screen.dart';
 import 'student_report_screen.dart';
 
@@ -334,6 +335,14 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
       actions.add(
           _btn(Icons.upload_file, 'ফাইল বাছুন', () => _pickDocument(type)));
     } else {
+      // স্ক্যানার প্রধান অ্যাকশন — অটো এজ-ডিটেকশন + বাঁকা সোজা + ছায়ামুক্ত
+      actions.add(_btn(Icons.document_scanner, 'স্ক্যান করুন', () {
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => DocumentScannerScreen(
+                    student: widget.student, type: type)));
+      }));
       // BIRTH/FORM: ক্যামেরা দিয়েও তোলা যায় (পুরো পেজ, ক্রপ ছাড়া)
       actions.add(_btn(Icons.photo_camera, 'ক্যামেরা', () {
         Navigator.push(
