@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -171,14 +172,47 @@ Future<Uint8List?> resizeImageInIsolate(Uint8List bytes,
   return Isolate.run(() {
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return null;
+    // PNG সোর্স হলে PNG-ই ফেরত — এক্সটেনশন ও কনটেন্ট মিলবে
+    final isPng = bytes.length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50;
     final int w = decoded.width;
     final int h = decoded.height;
+    final img.Image out;
     if (w <= maxSide && h <= maxSide) {
-      return img.encodeJpg(decoded, quality: 92);
+      out = decoded;
+    } else {
+      final double ratio = w >= h ? maxSide / w : maxSide / h;
+      out = img.copyResize(decoded,
+          width: (w * ratio).round(), height: (h * ratio).round());
     }
-    final double ratio = w >= h ? maxSide / w : maxSide / h;
-    final resized = img.copyResize(decoded,
-        width: (w * ratio).round(), height: (h * ratio).round());
-    return img.encodeJpg(resized, quality: 92);
+    return isPng ? img.encodePng(out) : img.encodeJpg(out, quality: 92);
+  });
+}
+
+/// নেটিভ ক্রপ-এডিটরে (uCrop) দেওয়ার আগে সোর্স প্রস্তুত করে:
+/// খুব বড় ছবি হলে সর্বোচ্চ [maxSide] বাহুতে নামিয়ে [destPath] (ASCII-নিরাপদ
+/// অস্থায়ী ফাইল) এ JPEG লেখে — OOM ও ইউনিকোড-পাথ ক্র্যাশ এড়াতে।
+/// রিটার্ন: destPath (ডিকোড ব্যর্থ হলে null)।
+Future<String?> prepareCropSource({
+  required String srcPath,
+  required String destPath,
+  int maxSide = 3000,
+}) {
+  return Isolate.run(() async {
+    final bytes = await File(srcPath).readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+    final int w = decoded.width;
+    final int h = decoded.height;
+    final img.Image out;
+    if (w > maxSide || h > maxSide) {
+      final double ratio = w >= h ? maxSide / w : maxSide / h;
+      out = img.copyResize(decoded,
+          width: (w * ratio).round(), height: (h * ratio).round());
+    } else {
+      out = decoded;
+    }
+    await File(destPath)
+        .writeAsBytes(img.encodeJpg(out, quality: 95), flush: true);
+    return destPath;
   });
 }

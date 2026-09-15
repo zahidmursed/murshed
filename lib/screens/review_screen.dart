@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/document.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
+import '../services/storage_service.dart';
 import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
 import 'camera_screen.dart';
@@ -69,8 +70,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
   Future<void> _crop() async {
     final raw = widget.originalCapturePath;
     if (raw == null || !await File(raw).exists()) return;
+    // বড় অরিজিনাল ছবিতে নেটিভ এডিটরে OOM এড়াতে প্রি-ডাউনস্কেল
+    final prepDest =
+        await StorageService.temporaryCropSource(widget.student.dakhila);
+    final prepared =
+        await prepareCropSource(srcPath: raw, destPath: prepDest);
     final crop = await ImageCropper().cropImage(
-      sourcePath: raw,
+      sourcePath: prepared ?? raw,
       aspectRatio: CropAspectRatio(
         ratioX: passportWidth.toDouble(),
         ratioY: passportHeight.toDouble(),
@@ -88,6 +94,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
       ],
     );
     if (crop == null || !mounted) return;
+    try {
+      final pf = File(prepDest);
+      if (await pf.exists()) await pf.delete();
+    } catch (_) {}
+    if (!mounted) return;
     setState(() => _applying = true);
     try {
       final provider = context.read<StudentProvider>();

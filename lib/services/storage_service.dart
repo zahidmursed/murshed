@@ -66,6 +66,15 @@ class StorageService {
     return '${dir.path}/${_sanitize(dakhila)}_${DateTime.now().millisecondsSinceEpoch}.jpg';
   }
 
+  /// সম্পাদনার (নেটিভ uCrop) আগে ASCII-নিরাপদ অস্থায়ী সোর্স পাথ দেয় —
+  /// v2 পাথে বাংলা/স্পেস থাকলে নেটিভ এডিটর ক্র্যাশ করতে পারে।
+  static Future<String> temporaryCropSource(String dakhila) async {
+    final temp = await getTemporaryDirectory();
+    final dir = Directory('${temp.path}/DakhilaCamera/crop_src');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return '${dir.path}/${_sanitize(dakhila)}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+  }
+
   /// প্রতিষ্ঠানের লোগো branding ফোল্ডারে কপি করে (আগের লোগো মুছে)।
   /// রিটার্ন: নতুন পাথ (ব্যর্থ হলে null)।
   static Future<String?> saveLogo(String srcPath) async {

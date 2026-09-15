@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/document.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
+import '../services/storage_service.dart';
 import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
 import 'camera_screen.dart';
@@ -45,14 +46,32 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     setState(() => _version++);
   }
 
+  Future<void> _cleanupTemp(String? tempSource) async {
+    if (tempSource == null) return;
+    try {
+      final f = File(tempSource);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+  }
+
   Future<void> _crop({required bool passport}) async {
     final path = _path;
     if (path == null || _busy) return;
     final provider = context.read<StudentProvider>();
+    setState(() => _busy = true);
+    String? tempSource;
     CroppedFile? crop;
     try {
+      // ফিক্স: v2 পাথে বাংলা/স্পেস থাকলে নেটিভ uCrop ক্র্যাশ করে — তাই
+      // আগে ASCII-নিরাপদ অস্থায়ী সোর্সে প্রস্তুত করি (বড় হলে ডাউনস্কেলও)।
+      final prepDest =
+          await StorageService.temporaryCropSource(widget.student.dakhila);
+      tempSource = prepDest;
+      final prepared = await prepareCropSource(
+          srcPath: path, destPath: prepDest);
+      if (prepared == null) throw StateError('invalid image');
       crop = await ImageCropper().cropImage(
-        sourcePath: path,
+        sourcePath: prepared,
         aspectRatio: passport
             ? CropAspectRatio(
                 ratioX: passportWidth.toDouble(),
@@ -72,9 +91,20 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       );
     } catch (e) {
       debugPrint('Crop editor failed: $e');
+      await _cleanupTemp(tempSource);
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('সম্পাদনা করা যায়নি')),
+      );
+      return;
     }
-    if (crop == null || !mounted) return;
-    setState(() => _busy = true);
+    await _cleanupTemp(tempSource);
+    if (crop == null) {
+      // ইউজার এডিটরে বাতিল করেছে — কিছুই বদলায় না
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
     try {
       List<int> out;
       if (passport) {
