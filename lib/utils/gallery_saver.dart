@@ -118,4 +118,15 @@ class GallerySaver {
       return false;
     }
   }
+
+  /// রিপোর্ট ফরমের মতো টেক্সট সিস্টেম শেয়ার শিটে পাঠায় (WhatsApp/SMS ইত্যাদি)।
+  static Future<bool> shareText({required String text}) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('shareText', {'text': text});
+      return ok ?? false;
+    } catch (e) {
+      debugPrint('Share text failed: $e');
+      return false;
+    }
+  }
 }

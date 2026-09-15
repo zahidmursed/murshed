@@ -38,7 +38,7 @@ void main() {
     expect(student.className, '');
     expect(student.forikNo, '');
     expect(student.fatherName, '');
-    expect(student.dakhilaYear, '2025'); // default year
+    expect(student.dakhilaYear, '${DateTime.now().year}'); // ফিক্স: ডিফল্ট = বর্তমান বছর
     expect(student.isCaptured, 0);
     expect(student.imagePath, isNull);
   });

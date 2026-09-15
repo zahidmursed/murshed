@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:android_intent_plus/flag.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/student_provider.dart';
+import '../services/storage_service.dart';
+import '../utils/image_processor.dart';
 
 /// সেটিংস: কাস্টম JSON ইমপোর্ট, ডেটা রিসেট, আউটপুট ফোল্ডার।
 class SettingsScreen extends StatefulWidget {
@@ -21,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _backingUp = false;
   bool _recovering = false;
   bool _migrating = false;
+  bool _logoBusy = false;
   String _backupStatus = '';
   String _recoverStatus = '';
   String _migrateStatus = '';
@@ -129,6 +134,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  /// প্রতিষ্ঠানের লোগো বাছাই → branding ফোল্ডারে কপি → প্রোভাইডারে সেভ।
+  Future<void> _pickLogo() async {
+    final provider = context.read<StudentProvider>();
+    List<PlatformFile> files;
+    try {
+      files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['png', 'jpg', 'jpeg'],
+      );
+    } catch (e) {
+      debugPrint('Pick logo error: $e');
+      return;
+    }
+    final path = files.isEmpty ? null : files.single.path;
+    if (path == null || !mounted) return;
+    setState(() => _logoBusy = true);
+    try {
+      final saved = await StorageService.saveLogo(path);
+      if (!mounted) return;
+      if (saved != null) {
+        await provider.setInstitutionLogo(saved);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('লোগো সেভ হয়েছে ✓')),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('লোগো সেভ ব্যর্থ')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _logoBusy = false);
     }
   }
 
@@ -298,6 +339,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Row(children: [
+                        Icon(Icons.business, color: Colors.teal),
+                        SizedBox(width: 8),
+                        Text('প্রতিষ্ঠান (কাস্টমাইজ)',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
+                      ]),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        initialValue: provider.institutionName,
+                        decoration: const InputDecoration(
+                            labelText: 'প্রতিষ্ঠানের নাম',
+                            border: OutlineInputBorder(),
+                            isDense: true),
+                        onChanged: provider.setInstitutionName,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.black26),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: (provider.institutionLogoPath != null &&
+                                    File(provider.institutionLogoPath!)
+                                        .existsSync())
+                                ? Image.file(
+                                    File(provider.institutionLogoPath!),
+                                    fit: BoxFit.contain)
+                                : const Icon(Icons.image,
+                                    color: Colors.black26),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _logoBusy ? null : _pickLogo,
+                              icon: _logoBusy
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.upload),
+                              label: const Text('লোগো বাছুন'),
+                            ),
+                          ),
+                          if (provider.institutionLogoPath != null)
+                            IconButton(
+                              tooltip: 'লোগো মুছুন',
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red),
+                              onPressed: _logoBusy
+                                  ? null
+                                  : () => provider.setInstitutionLogo(null),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'নাম ও লোগো অ্যাপ হেডার ও রিপোর্ট ফরমে দেখা যাবে',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       const Text('থিম',
                           style: TextStyle(
                               fontSize: 16, fontWeight: FontWeight.bold)),
@@ -314,6 +431,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         selected: {provider.themeMode},
                         onSelectionChanged: (s) =>
                             provider.setThemeMode(s.first),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('পাসপোর্ট ছবির রং',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Auto-enhancement'),
+                        subtitle: const Text(
+                            'মূল ছবি অপরিবর্তিত রেখে final JPEG-এ প্রয়োগ হবে'),
+                        value: provider.isAutoEnhancementEnabled,
+                        onChanged: provider.setAutoEnhancementEnabled,
+                      ),
+                      SegmentedButton<PassportPreset>(
+                        segments: PassportPreset.values
+                            .map((p) =>
+                                ButtonSegment(value: p, label: Text(p.label)))
+                            .toList(),
+                        selected: {provider.passportPreset},
+                        onSelectionChanged: provider.isAutoEnhancementEnabled
+                            ? (value) => provider.setPassportPreset(value.first)
+                            : null,
                       ),
                     ],
                   ),
@@ -363,9 +512,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               height: 24,
                               child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.backup, color: Colors.teal),
-                      title: const Text('সব ছবি গ্যালারিতে ব্যাকআপ'),
+                      title: const Text('সব ডকুমেন্ট গ্যালারিতে ব্যাকআপ'),
                       subtitle: Text(_backupStatus.isEmpty
-                          ? 'তোলা সব ছবি গ্যালারির Pictures/DakhilaCamera-তে কপি হবে '
+                          ? 'PHOTO, জন্মনিবন্ধন ও image ফরম গ্যালারির '
+                              'Pictures/DakhilaCamera-তে কপি হবে '
                               '(uninstall করলেও থাকবে)'
                           : _backupStatus),
                       onTap: _backingUp ? null : _backupAll,

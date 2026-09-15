@@ -24,7 +24,7 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     return await openDatabase(path,
-        version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
+        version: 6, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future _createDB(Database db, int version) async {
@@ -35,7 +35,9 @@ class DatabaseHelper {
       class_name TEXT,
       forik_no TEXT,
       father_name TEXT,
+      guardian_mobile TEXT,
       dakhila_year TEXT,
+      class_level TEXT,
       marhala TEXT,
       exam_year TEXT,
       image_path TEXT,
@@ -54,6 +56,12 @@ class DatabaseHelper {
     }
     if (oldVersion < 4) {
       await _upgradeToV4(db);
+    }
+    if (oldVersion < 5) {
+      await _upgradeToV5(db);
+    }
+    if (oldVersion < 6) {
+      await _upgradeToV6(db);
     }
   }
 
@@ -74,6 +82,42 @@ class DatabaseHelper {
     await db.execute(
         'UPDATE students SET total_docs = (SELECT COUNT(*) FROM documents '
         'WHERE documents.dakhila = students.dakhila)');
+  }
+
+  /// v4 → v5: অভিভাবকের মোবাইল নম্বর যোগ করে, আগে থেকে থাকা bundled
+  /// ছাত্র-রেকর্ডগুলোর নম্বরও dakhila মিলিয়ে বসায়।
+  Future _upgradeToV5(Database db) async {
+    await _addColumnIfMissing(db, 'students', 'guardian_mobile TEXT');
+    final raw = await rootBundle.loadString('assets/Data_basic.json');
+    final maps = await Isolate.run(() => Student.parseJsonToMaps(raw));
+    final batch = db.batch();
+    for (final student in maps) {
+      final phone = student['guardian_mobile'] as String? ?? '';
+      if (phone.isEmpty) continue;
+      batch.update(
+        'students',
+        {'guardian_mobile': phone},
+        where: 'dakhila = ?',
+        whereArgs: [student['dakhila']],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// v5 → v6: dropdown-এর শিক্ষা-ক্রম `CLASS_LEVEL` bundled data থেকে যোগ।
+  Future _upgradeToV6(Database db) async {
+    await _addColumnIfMissing(db, 'students', 'class_level TEXT');
+    final raw = await rootBundle.loadString('assets/Data_basic.json');
+    final maps = await Isolate.run(() => Student.parseJsonToMaps(raw));
+    final batch = db.batch();
+    for (final student in maps) {
+      final dakhila = student['dakhila'] as String? ?? '';
+      final level = student['class_level'] as String? ?? '';
+      if (dakhila.isEmpty || level.isEmpty) continue;
+      batch.update('students', {'class_level': level},
+          where: 'dakhila = ?', whereArgs: [dakhila]);
+    }
+    await batch.commit(noResult: true);
   }
 
   Future _createDocumentsTable(Database db) async {
@@ -214,8 +258,14 @@ class DatabaseHelper {
   Future<List<Student>> search(String query,
       {String? forikFilter, String? classFilter}) async {
     final db = await database;
-    String where = '(dakhila LIKE ? OR stu_name LIKE ?)';
-    final List<dynamic> args = ['%$query%', '%$query%'];
+    // ফিক্স: LIKE wildcard escape — ব্যবহারকারীর %/_ লিখলে আক্ষরিক অক্ষর হিসেবে
+    // ম্যাচ হয় (নইলে '%' দিলে সবাই, '_' দিলে যেকোনো এক অক্ষর ম্যাচ করত)।
+    final escaped = query
+        .replaceAll('\\', '\\\\')
+        .replaceAll('%', '\\%')
+        .replaceAll('_', '\\_');
+    String where = "(dakhila LIKE ? ESCAPE '\\' OR stu_name LIKE ? ESCAPE '\\')";
+    final List<dynamic> args = ['%$escaped%', '%$escaped%'];
     if (classFilter != null && classFilter.isNotEmpty) {
       where += ' AND class_name = ?';
       args.add(classFilter);
@@ -270,11 +320,14 @@ class DatabaseHelper {
   /// ডিস্টিংক্ট ক্লাস লিস্ট — ক্লাস ফিল্টার dropdown-এর জন্য।
   Future<List<String>> getDistinctClasses() async {
     final db = await database;
-    final rows = await db.rawQuery(
-      'SELECT DISTINCT class_name FROM students '
-      "WHERE class_name IS NOT NULL AND class_name != '' "
-      'ORDER BY class_name ASC',
-    );
+    final rows = await db.rawQuery('''
+      SELECT class_name,
+             MIN(CAST(NULLIF(class_level, '') AS INTEGER)) AS level_order
+      FROM students
+      WHERE class_name IS NOT NULL AND class_name != ''
+      GROUP BY class_name
+      ORDER BY level_order IS NULL ASC, level_order ASC, class_name COLLATE NOCASE ASC
+    ''');
     return rows
         .map((r) => (r['class_name'] as String?) ?? '')
         .where((c) => c.isNotEmpty)
@@ -354,7 +407,9 @@ class DatabaseHelper {
       className: (m['class_name'] as String?) ?? '',
       forikNo: (m['forik_no'] as String?) ?? '',
       fatherName: (m['father_name'] as String?) ?? '',
-      dakhilaYear: (m['dakhila_year'] as String?) ?? '2025',
+      guardianMobile: (m['guardian_mobile'] as String?) ?? '',
+      dakhilaYear: (m['dakhila_year'] as String?) ?? '${DateTime.now().year}',
+      classLevel: (m['class_level'] as String?) ?? '',
       marhala: (m['marhala'] as String?) ?? '',
       examYear: (m['exam_year'] as String?) ?? '',
       imagePath: m['image_path'] as String?,

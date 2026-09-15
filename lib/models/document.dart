@@ -73,6 +73,15 @@ class StudentDocument {
       'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
     };
   }
+
+  /// এক্সটেনশন থেকে MIME — সিস্টেম ভিউয়ার/MediaStore-এ সঠিক টাইপ দরকার।
+  static String mimeTypeForExt(String ext) => switch (ext.toLowerCase()) {
+        'pdf' => 'application/pdf',
+        'png' => 'image/png',
+        _ => 'image/jpeg',
+      };
+
+  String get mimeTypeForView => mimeTypeForExt(ext);
 }
 
 /// ছাত্র + তার ডকুমেন্ট স্লট (PHOTO/BIRTH/FORM) — UI-র জন্য।

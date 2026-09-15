@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:csv/csv.dart';
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -29,6 +32,24 @@ class ExportService {
   /// ফোল্ডার/ফাইলের নামে নিষিদ্ধ অক্ষর বাদ
   static String _sanitize(String name) =>
       name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+
+  /// মেমোরি ফিক্স: এমবেডের আগে ছবি isolate-এ প্রিন্ট/পেজ-প্রয়োজনীয়
+  /// রেজোলিউশনে নামানো হয়। বড় স্কোপে pw.Document-এর মেমোরি কয়েকগুণ কমে —
+  /// হাজার খানেক ছবিতে OOM ঝুঁকি কমায়।
+  static Future<Uint8List> _downscaledImageBytes(
+    String path, {
+    required int maxWidth,
+  }) =>
+      Isolate.run(() async {
+        final raw = await File(path).readAsBytes();
+        final decoded = img.decodeImage(raw);
+        if (decoded == null) return raw;
+        if (decoded.width <= maxWidth) return raw;
+        return img.encodeJpg(
+          img.copyResize(decoded, width: maxWidth),
+          quality: 88,
+        );
+      });
 
   static String _scopeTag({String? classFilter, String? forikFilter}) {
     final c = (classFilter == null || classFilter.isEmpty)
@@ -69,6 +90,13 @@ class ExportService {
           .toList();
 
   /// Status report CSV v2 (UTF-8 BOM): প্রতি ছাত্রের Photo/Birth/Form স্ট্যাটাস।
+  /// CSV formula injection রোধ: সেল = + - @ দিয়ে শুরু হলে সামনে ' বসে —
+  /// Excel টেক্সট ধরে, ফর্মুলা হিসেবে চালায় না।
+  static String _csvSafe(String v) =>
+      (v.isNotEmpty && const {'=', '+', '-', '@'}.contains(v[0]))
+          ? "'$v"
+          : v;
+
   static String _statusCsvContent(List<StudentWithDocs> scope) {
     String yn(bool v) => v ? 'yes' : 'no';
     final rows = <List<dynamic>>[
@@ -83,10 +111,10 @@ class ExportService {
         'MissingCount'
       ],
       ...scope.map((swd) => [
-            swd.student.dakhila,
-            swd.student.stuName,
-            swd.student.className,
-            swd.student.forikNo,
+            _csvSafe(swd.student.dakhila),
+            _csvSafe(swd.student.stuName),
+            _csvSafe(swd.student.className),
+            _csvSafe(swd.student.forikNo),
             yn(swd.hasDoc(DocType.PHOTO)),
             yn(swd.hasDoc(DocType.BIRTH)),
             yn(swd.hasDoc(DocType.FORM)),
@@ -145,7 +173,8 @@ class ExportService {
           '$classDir/Forik_${_sanitize(s.forikNo)}/${s.dakhila}_${_sanitize(s.stuName)}';
       for (final d in _existingDocs(swd)) {
         docFiles.add((
-          '$studentDir/${StorageService.fileName(s.dakhila, d.type, d.ext)}',
+          '$studentDir/${StorageService.documentFolderName(d.type)}/'
+              '${StorageService.fileName(s.dakhila, d.ext)}',
           d.filePath
         ));
       }
@@ -222,7 +251,9 @@ class ExportService {
       final batch = captured.skip(i).take(perPage).toList();
       final cells = <pw.Widget>[];
       for (final s in batch) {
-        final bytes = await File(s.imagePath!).readAsBytes();
+        // A4-তে ৩ কলামের ঘর ~৫৫মিমি — ৬২০px ≈ ২৮০ DPI, প্রিন্টের জন্য যথেষ্ট
+        final bytes =
+            await _downscaledImageBytes(s.imagePath!, maxWidth: 620);
         final image = pw.MemoryImage(bytes);
         cells.add(pw.Column(
           mainAxisAlignment: pw.MainAxisAlignment.center,
@@ -304,7 +335,9 @@ class ExportService {
         ));
         continue;
       }
-      final bytes = await File(d.filePath).readAsBytes();
+      // পুরো A4 পেজের জন্য ১৬০০px ≈ ১৯০ DPI — বড় ক্যামেরার ছবিও নামিয়ে নেয়
+      final bytes =
+          await _downscaledImageBytes(d.filePath, maxWidth: 1600);
       final image = pw.MemoryImage(bytes);
       doc.addPage(pw.Page(
         pageFormat: PdfPageFormat.a4,

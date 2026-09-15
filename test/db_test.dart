@@ -52,6 +52,7 @@ void main() {
     final updated =
         await DatabaseHelper.instance.getAllStudents(forikFilter: '1');
     final s281 = updated.firstWhere((s) => s.dakhila == '281');
+    expect(s281.guardianMobile, '01922373258');
     expect(s281.isCaptured, 1);
     expect(s281.imagePath, endsWith('281.jpg'));
 
@@ -119,5 +120,80 @@ void main() {
     expect(await DatabaseHelper.instance.getDistinctClasses(), isNotEmpty);
     final s281AfterReset = restored.firstWhere((s) => s.dakhila == '281');
     expect(s281AfterReset.isCaptured, 0);
+  });
+
+  test('getForikStats honors classFilter (bug #1 regression)', () async {
+    final tmpDir = await Directory.systemTemp.createTemp('dakhila_db_test');
+    addTearDown(() async {
+      await DatabaseHelper.instance.resetForTest();
+      if (await tmpDir.exists()) {
+        await tmpDir.delete(recursive: true);
+      }
+    });
+    await databaseFactory.setDatabasesPath(tmpDir.path);
+
+    await DatabaseHelper.instance.importJsonIfEmpty();
+    final first = (await DatabaseHelper.instance.getAllStudents()).first;
+
+    final classStats = await DatabaseHelper.instance
+        .getForikStats(classFilter: first.className);
+    expect(classStats, isNotEmpty);
+    final statsTotal = classStats.fold<int>(0, (sum, st) => sum + st.total);
+    final classSize = (await DatabaseHelper.instance
+            .getAllStudents(classFilter: first.className))
+        .length;
+    expect(statsTotal, classSize);
+
+    // ক্লাস ফিল্টার ছাড়া স্ট্যাটে সব ফরিক আসে — ফিল্টার করা স্ট্যাট তার সাবসেট
+    final allStats = await DatabaseHelper.instance.getForikStats();
+    expect(classStats.length, lessThanOrEqualTo(allStats.length));
+  });
+
+  test('search escapes LIKE wildcards (bug #9 regression)', () async {
+    final tmpDir = await Directory.systemTemp.createTemp('dakhila_db_test');
+    addTearDown(() async {
+      await DatabaseHelper.instance.resetForTest();
+      if (await tmpDir.exists()) {
+        await tmpDir.delete(recursive: true);
+      }
+    });
+    await databaseFactory.setDatabasesPath(tmpDir.path);
+
+    final maps = <Map<String, dynamic>>[
+      {
+        'dakhila': '900001',
+        'stu_name': 'করিম ১০০%',
+        'class_name': 'তাহফীজ',
+        'forik_no': '1',
+        'father_name': '',
+        'dakhila_year': '2026',
+      },
+      {
+        'dakhila': '900002',
+        'stu_name': 'রহিম_X',
+        'class_name': 'তাহফীজ',
+        'forik_no': '1',
+        'father_name': '',
+        'dakhila_year': '2026',
+      },
+      {
+        'dakhila': '900003',
+        'stu_name': 'রহিমঅX',
+        'class_name': 'তাহফীজ',
+        'forik_no': '1',
+        'father_name': '',
+        'dakhila_year': '2026',
+      },
+    ];
+    await DatabaseHelper.instance.replaceAllStudents(maps);
+
+    // '%' আক্ষরিক: '১০০%' শুধু প্রকৃত '%' সহ নামে ম্যাচ করে
+    final pct = await DatabaseHelper.instance.search('১০০%');
+    expect(pct.map((s) => s.dakhila), contains('900001'));
+
+    // '_' আক্ষরিক: 'রহিম_X' ম্যাচ করে, কিন্তু '_' wildcard ধরে 'রহিমঅX' নয়
+    final underscore = await DatabaseHelper.instance.search('রহিম_X');
+    expect(underscore.map((s) => s.dakhila), contains('900002'));
+    expect(underscore.map((s) => s.dakhila), isNot(contains('900003')));
   });
 }

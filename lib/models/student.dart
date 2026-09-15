@@ -6,7 +6,9 @@ class Student {
   final String className;
   final String forikNo;
   final String fatherName;
+  final String guardianMobile;
   final String dakhilaYear;
+  final String classLevel;
   final String marhala;
   final String examYear;
   String? imagePath;
@@ -19,7 +21,9 @@ class Student {
     required this.className,
     required this.forikNo,
     required this.fatherName,
+    this.guardianMobile = '',
     required this.dakhilaYear,
+    this.classLevel = '',
     this.marhala = '',
     this.examYear = '',
     this.imagePath,
@@ -34,7 +38,12 @@ class Student {
       className: j['CLASS_NAME'] ?? '',
       forikNo: j['FORIK_NO']?.toString() ?? '',
       fatherName: j['FATHER_NAME'] ?? '',
-      dakhilaYear: j['DAKHILA_YEAR']?.toString() ?? '2025',
+      guardianMobile: j['GAR_MOB_NO']?.toString() ??
+          j['GUARDIAN_MOBILE']?.toString() ??
+          j['MOBILE']?.toString() ??
+          '',
+      dakhilaYear: j['DAKHILA_YEAR']?.toString() ?? '${DateTime.now().year}',
+      classLevel: j['CLASS_LEVEL']?.toString() ?? '',
       marhala: j['MARHALA']?.toString() ?? '',
       examYear: j['EXAM_YEAR']?.toString() ?? '',
       imagePath: j['image_path'],
@@ -50,7 +59,9 @@ class Student {
       'class_name': className,
       'forik_no': forikNo,
       'father_name': fatherName,
+      'guardian_mobile': guardianMobile,
       'dakhila_year': dakhilaYear,
+      'class_level': classLevel,
       'marhala': marhala,
       'exam_year': examYear,
       'image_path': imagePath,

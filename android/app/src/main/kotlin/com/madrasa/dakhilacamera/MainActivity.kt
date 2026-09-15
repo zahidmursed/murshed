@@ -101,6 +101,14 @@ class MainActivity : FlutterActivity() {
                             result.error("VIEW_FAILED", e.message, null)
                         }
                     }
+                    "shareText" -> {
+                        val text = call.argument<String>("text") ?: ""
+                        try {
+                            result.success(shareText(text))
+                        } catch (e: Exception) {
+                            result.error("SHARE_FAILED", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -213,9 +221,10 @@ class MainActivity : FlutterActivity() {
         val resolver = applicationContext.contentResolver
         deleteFromGallery(fileName)
 
+        val mime = if (fileName.lowercase().endsWith(".png")) "image/png" else "image/jpeg"
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Images.Media.MIME_TYPE, mime)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, relativePath())
                 put(MediaStore.Images.Media.IS_PENDING, 1)
@@ -298,6 +307,16 @@ class MainActivity : FlutterActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(intent)
+        return true
+    }
+
+    /// রিপোর্ট ফরমের মতো টেক্সট সিস্টেম শেয়ার শিটে পাঠায় (WhatsApp/SMS ইত্যাদি)।
+    private fun shareText(text: String): Boolean {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(intent, "Share"))
         return true
     }
 }

@@ -14,6 +14,7 @@ import '../models/student.dart';
 import '../services/storage_service.dart';
 import '../utils/excel_parser.dart';
 import '../utils/gallery_saver.dart';
+import '../utils/image_processor.dart';
 
 class StudentProvider extends ChangeNotifier {
   StudentProvider({SharedPreferences? prefs}) : _prefs = prefs {
@@ -21,11 +22,22 @@ class StudentProvider extends ChangeNotifier {
     isPassportMode = _prefs!.getBool('passportMode') ?? isPassportMode;
     isSerialMode = _prefs!.getBool('serialMode') ?? isSerialMode;
     isGridMode = _prefs!.getBool('gridMode') ?? isGridMode;
+    isAutoEnhancementEnabled =
+        _prefs!.getBool('autoEnhancementEnabled') ?? isAutoEnhancementEnabled;
+    final preset = _prefs!.getString('passportPreset');
+    if (preset != null) {
+      passportPreset = PassportPreset.values.firstWhere(
+        (p) => p.name == preset,
+        orElse: () => PassportPreset.fresh,
+      );
+    }
     final saved = _prefs!.getString('themeMode');
     if (saved != null) {
       themeMode = ThemeMode.values
           .firstWhere((m) => m.name == saved, orElse: () => ThemeMode.system);
     }
+    institutionName = _prefs!.getString('institutionName') ?? '';
+    institutionLogoPath = _prefs!.getString('institutionLogoPath');
   }
 
   final SharedPreferences? _prefs;
@@ -34,10 +46,24 @@ class StudentProvider extends ChangeNotifier {
   List<Student> _filtered = [];
   bool isLoading = true;
   String selectedForik = '';
-  bool isPassportMode = true; // true = passport size 600x800
+  bool isPassportMode = true; // true = passport size 431x531 + auto enhance
   bool isSerialMode = true;
   bool isGridMode = true;
+  bool isAutoEnhancementEnabled = true;
+  PassportPreset passportPreset = PassportPreset.fresh;
   ThemeMode themeMode = ThemeMode.system;
+
+  void setPassportPreset(PassportPreset preset) {
+    passportPreset = preset;
+    _prefs?.setString('passportPreset', preset.name);
+    notifyListeners();
+  }
+
+  void setAutoEnhancementEnabled(bool enabled) {
+    isAutoEnhancementEnabled = enabled;
+    _prefs?.setBool('autoEnhancementEnabled', enabled);
+    notifyListeners();
+  }
 
   String selectedClass = '';
   List<String> classes = [];
@@ -47,6 +73,7 @@ class StudentProvider extends ChangeNotifier {
   Timer? _debounce;
   int _searchRequest = 0;
   final Map<String, bool> _undoFlags = {};
+  bool _trashSwept = false;
 
   List<ForikStat> _forikStats = [];
 
@@ -69,9 +96,28 @@ class StudentProvider extends ChangeNotifier {
         docs: {for (final t in DocType.values) t: _docs[s.dakhila]?[t]},
       );
 
-  Future<void> load() async {
+  Future<void>? _loadQueue;
+
+  /// reentrancy guard: চলমান load থাকলে সেটার পরে নতুনটা চলে — দ্রুত
+  /// ফিল্টার ট্যাপে পুরনো/নতুন ফলাফল মিশে যাওয়া (interleaving) আটকায়;
+  /// শেষে সর্বশেষ ফিল্টারের ফলাফলই পর্দায় থাকে।
+  Future<void> load() {
+    final prev = _loadQueue;
+    final future = () async {
+      try {
+        await prev;
+      } catch (_) {}
+      await _doLoad();
+    }();
+    _loadQueue = future;
+    return future;
+  }
+
+  Future<void> _doLoad() async {
     isLoading = true;
     notifyListeners();
+    // স্টোরেজ ফিক্স: অ্যাপ রানে একবার পুরনো ট্র্যাশ ফাইল পরিষ্কার (নিচে দেখুন)
+    unawaited(_sweepTrashOnce());
     await DatabaseHelper.instance.importJsonIfEmpty();
     final String? classFilter = selectedClass.isEmpty ? null : selectedClass;
     classes = await DatabaseHelper.instance.getDistinctClasses();
@@ -163,6 +209,36 @@ class StudentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- প্রতিষ্ঠান কাস্টমাইজ (নাম/লোগো) — অ্যাপ হেডার ও রিপোর্ট ফরমে দেখা যায় ----
+  String institutionName = '';
+  String? institutionLogoPath;
+
+  void setInstitutionName(String name) {
+    institutionName = name.trim();
+    _prefs?.setString('institutionName', institutionName);
+    notifyListeners();
+  }
+
+  Future<void> setInstitutionLogo(String? path) async {
+    institutionLogoPath = path;
+    if (path == null) {
+      await _prefs?.remove('institutionLogoPath');
+    } else {
+      await _prefs?.setString('institutionLogoPath', path);
+    }
+    notifyListeners();
+  }
+
+  /// বাগ ফিক্স: ফরিক স্ট্যাট সবসময় বর্তমান ক্লাস ফিল্টার মেনে রিফ্রেশ হয়।
+  /// আগে কয়েকটি মেথড ফিল্টার ছাড়া getForikStats() কল করত — ফলে ক্লাস বাছাই
+  /// করা অবস্থায় ক্যাপচার/ডিলিটের পরেই chip-গুলোতে সব ক্লাসের ফরিক ঢুকে যেত।
+  Future<void> _refreshForikStats() async {
+    final String? classFilter = selectedClass.isEmpty ? null : selectedClass;
+    _forikStats = await DatabaseHelper.instance.getForikStats(
+      classFilter: classFilter,
+    );
+  }
+
   Future<void> markCaptured(String dakhila, String path) async {
     final idx = _students.indexWhere((s) => s.dakhila == dakhila);
     if (idx != -1) {
@@ -186,7 +262,30 @@ class StudentProvider extends ChangeNotifier {
       final i = list.indexWhere((s) => s.dakhila == dakhila);
       if (i != -1) list[i].totalDocs = _docs[dakhila]?.length ?? 0;
     }
-    _forikStats = await DatabaseHelper.instance.getForikStats();
+    await _refreshForikStats();
+    notifyListeners();
+  }
+
+  /// ক্যামেরা/ডিস্ক থেকে সরাসরি ডকুমেন্ট সেভ (ফাইল আগেই সঠিক পাথে থাকলে)।
+  Future<void> markDocumentSaved(
+      String dakhila, DocType type, String path) async {
+    final ext =
+        path.contains('.') ? path.split('.').last.toLowerCase() : 'jpg';
+    final doc = StudentDocument(
+      dakhila: dakhila,
+      type: type,
+      filePath: path,
+      ext: ext,
+      mimeType: StudentDocument.mimeTypeForExt(ext),
+      status: 1,
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+    await DatabaseHelper.instance.upsertDocument(doc);
+    _docs.putIfAbsent(dakhila, () => {})[type] = doc;
+    for (final list in [_students, _filtered]) {
+      final i = list.indexWhere((x) => x.dakhila == dakhila);
+      if (i != -1) list[i].totalDocs = _docs[dakhila]?.length ?? 0;
+    }
     notifyListeners();
   }
 
@@ -229,10 +328,35 @@ class StudentProvider extends ChangeNotifier {
         list[idx].totalDocs = _docs[dakhila]?.length ?? 0;
       }
     }
-    _forikStats = await DatabaseHelper.instance.getForikStats();
+    await _refreshForikStats();
     notifyListeners();
     if (trashPath != null) _scheduleTrashCleanup(trashPath);
     return trashPath;
+  }
+
+  /// স্টোরেজ ফিক্স: Undo-র ৬ সেকেন্ড উইন্ডোর মধ্যে অ্যাপ বন্ধ হলে
+  /// Future.delayed আর চলে না — ট্র্যাশ ফাইল ফাঁকি থেকে যেত। প্রতি রানে
+  /// একবার ট্র্যাশ স্ক্যান করে ১ মিনিটের পুরনো ফাইল মুছে দেয় (সদ্য তৈরি
+  /// ফাইল = সম্ভবত চলমান Undo উইন্ডো — সেটা নিজের টাইমারে মুছে যাবে)।
+  Future<void> _sweepTrashOnce() async {
+    if (_trashSwept) return;
+    _trashSwept = true;
+    try {
+      final appDir = await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final trashDir = Directory('${appDir.path}/Trash');
+      if (!await trashDir.exists()) return;
+      final cutoff = DateTime.now().subtract(const Duration(minutes: 1));
+      await for (final entity in trashDir.list()) {
+        if (entity is! File) continue;
+        try {
+          final stat = await entity.stat();
+          if (stat.modified.isBefore(cutoff)) await entity.delete();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('Trash sweep failed: $e');
+    }
   }
 
   /// ৬ সেকেন্ড পর ট্র্যাশ ফাইল মুছে ফেলে (Undo না করলে)।
@@ -270,14 +394,34 @@ class StudentProvider extends ChangeNotifier {
       } catch (_) {}
       return;
     }
-    final appDir = await getExternalStorageDirectory() ??
-        await getApplicationDocumentsDirectory();
-    final dest = '${appDir.path}/DakhilaCamera/$dakhila.jpg';
+    // বাগ ফিক্স: v2 লেআউটেই ফেরত বসানো (আগে পুরনো flat DakhilaCamera/ ফোল্ডারে
+    // যেত — ফলে ফোল্ডার-গঠন অসঙ্গত হতো ও আবার তুললে orphan ফাইল থেকে যেত)।
+    if (current == null) {
+      // DB-তে ছাত্র নেই — ফেরানো অর্থহীন; ট্র্যাশ ফাইল পরিষ্কার করে দিই।
+      try {
+        final stale = File(trashPath);
+        if (await stale.exists()) await stale.delete();
+      } catch (_) {}
+      return;
+    }
+    final dest = await StorageService.documentPath(
+      current.className,
+      current.forikNo,
+      dakhila,
+      DocType.PHOTO,
+      'jpg',
+    );
     try {
       await File(trashPath).rename(dest);
     } catch (e) {
-      debugPrint('Restore rename failed: $e');
-      return;
+      // একই ভলিউমে rename ব্যর্থ হলে copy+delete fallback
+      try {
+        await File(trashPath).copy(dest);
+        await File(trashPath).delete();
+      } catch (e2) {
+        debugPrint('Restore failed: $e2');
+        return;
+      }
     }
     await DatabaseHelper.instance.updateImage(dakhila, dest);
     _docs.putIfAbsent(dakhila, () => {})[DocType.PHOTO] = StudentDocument(
@@ -295,7 +439,7 @@ class StudentProvider extends ChangeNotifier {
         list[idx].totalDocs = _docs[dakhila]?.length ?? 0;
       }
     }
-    _forikStats = await DatabaseHelper.instance.getForikStats();
+    await _refreshForikStats();
     notifyListeners();
   }
 
@@ -323,9 +467,14 @@ class StudentProvider extends ChangeNotifier {
     var restored = 0;
     for (final s in targets) {
       final name = '${s.dakhila}.jpg';
-      final appDir = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
-      final dest = '${appDir.path}/DakhilaCamera/$name';
+      // বাগ ফিক্স: v2 লেআউটে রিকভারি — documentPath নিজেই ফোল্ডার তৈরি করে দেয়।
+      final dest = await StorageService.documentPath(
+        s.className,
+        s.forikNo,
+        s.dakhila,
+        DocType.PHOTO,
+        'jpg',
+      );
       final ok = await GallerySaver.copyGalleryPhoto(
         fileName: name,
         destPath: dest,
@@ -352,59 +501,105 @@ class StudentProvider extends ChangeNotifier {
       onProgress?.call(done, targets.length);
     }
     if (restored > 0) {
-      _forikStats = await DatabaseHelper.instance.getForikStats();
+      await _refreshForikStats();
       notifyListeners();
     }
     return restored;
   }
 
-  /// Phase 6: পুরনো flat ছবিগুলো v2 ফোল্ডার-লেআউটে সাজানো
-  /// (copy → DB update → পুরনো ফাইল delete; ব্যর্থ হলে পুরনোটা অক্ষত)।
+  /// পুরনো flat/v2 ফাইলকে student/PHOTO|BIRTH|FORM/দাখিলা.ext লেআউটে সাজায়।
+  /// Copy ও DB update সফল হওয়ার আগে কোনো source file মুছে না, তাই মাঝপথে
+  /// ব্যর্থ হলেও পুরনো ফাইল অক্ষত থাকে।
   Future<int> migrateStorageToV2({
     void Function(int done, int total)? onProgress,
   }) async {
     final all = await DatabaseHelper.instance.getAllStudents();
-    final targets = all
-        .where((s) =>
-            s.isCaptured == 1 &&
-            s.imagePath != null &&
-            !s.imagePath!.contains('/v2/') &&
-            File(s.imagePath!).existsSync())
-        .toList();
+    final docsByDakhila = await DatabaseHelper.instance.getAllDocumentsMap();
+    final targets = <(Student, StudentDocument)>[];
+    for (final student in all) {
+      final docs = docsByDakhila[student.dakhila]?.values.toList() ?? [];
+      final hasPhotoDoc = docs.any((doc) => doc.type == DocType.PHOTO);
+      for (final doc in docs) {
+        if (File(doc.filePath).existsSync() && !_isStructuredPath(doc)) {
+          targets.add((student, doc));
+        }
+      }
+      // খুব পুরনো DB-তে PHOTO document row না থাকলেও image_path থাকলে সেটিও সাজাই।
+      if (!hasPhotoDoc &&
+          student.imagePath != null &&
+          File(student.imagePath!).existsSync()) {
+        final ext = p.extension(student.imagePath!).replaceFirst('.', '');
+        targets.add((
+          student,
+          StudentDocument(
+            dakhila: student.dakhila,
+            type: DocType.PHOTO,
+            filePath: student.imagePath!,
+            ext: ext.isEmpty ? 'jpg' : ext,
+          ),
+        ));
+      }
+    }
     var done = 0;
     var moved = 0;
-    for (final s in targets) {
+    for (final (student, doc) in targets) {
+      final oldPath = doc.filePath; // mutation-এর আগে source path ধরে রাখি
       final newPath = await StorageService.copyToStudentFolder(
-        className: s.className,
-        forik: s.forikNo,
-        dakhila: s.dakhila,
-        type: DocType.PHOTO,
-        oldPath: s.imagePath!,
+        className: student.className,
+        forik: student.forikNo,
+        dakhila: student.dakhila,
+        type: doc.type,
+        oldPath: oldPath,
       );
       if (newPath != null) {
-        await DatabaseHelper.instance.updateImage(s.dakhila, newPath);
-        for (final list in [_students, _filtered]) {
-          final i = list.indexWhere((x) => x.dakhila == s.dakhila);
-          if (i != -1) list[i].imagePath = newPath;
-        }
-        _docs[s.dakhila]?[DocType.PHOTO] = StudentDocument(
-          dakhila: s.dakhila,
-          type: DocType.PHOTO,
-          filePath: newPath,
-          ext: 'jpg',
-          status: 1,
-        );
-        // DB আপডেট সফল — এখন পুরনো flat ফাইল মুছে ফেলা নিরাপদ
         try {
-          final old = File(s.imagePath!);
-          if (await old.exists()) await old.delete();
-        } catch (_) {}
-        moved++;
+          if (doc.type == DocType.PHOTO) {
+            await DatabaseHelper.instance.updateImage(student.dakhila, newPath);
+          } else {
+            await DatabaseHelper.instance.upsertDocument(StudentDocument(
+              dakhila: student.dakhila,
+              type: doc.type,
+              filePath: newPath,
+              ext: doc.ext,
+              mimeType: doc.mimeType,
+              status: doc.status,
+            ));
+          }
+          for (final list in [_students, _filtered]) {
+            final i = list.indexWhere((x) => x.dakhila == student.dakhila);
+            if (i != -1 && doc.type == DocType.PHOTO) {
+              list[i].imagePath = newPath;
+            }
+          }
+          _docs.putIfAbsent(student.dakhila, () => {})[doc.type] =
+              StudentDocument(
+            dakhila: student.dakhila,
+            type: doc.type,
+            filePath: newPath,
+            ext: doc.ext,
+            mimeType: doc.mimeType,
+            status: doc.status,
+          );
+          // নতুন path-এ কপি ও DB record দুই-ই সফল; এবার শুধু source মুছি।
+          final oldFile = File(oldPath);
+          if (oldPath != newPath && await oldFile.exists()) {
+            await oldFile.delete();
+          }
+          moved++;
+        } catch (_) {
+          // DB update/delete ব্যর্থ হলেও source রাখা হয়; পরেরবার আবার চেষ্টা করা যাবে।
+        }
       }
       done++;
       onProgress?.call(done, targets.length);
     }
+    if (moved > 0) notifyListeners();
     return moved;
+  }
+
+  bool _isStructuredPath(StudentDocument doc) {
+    final parts = doc.filePath.replaceAll('\\', '/').split('/');
+    return parts.length >= 2 && parts[parts.length - 2] == doc.type.name;
   }
 
   /// Phase 7: ডকুমেন্ট (PHOTO/BIRTH/FORM) ছাত্রের ফোল্ডারে কপি করে সেভ করে।
@@ -491,7 +686,8 @@ class StudentProvider extends ChangeNotifier {
     required String dakhila,
     required DocType type,
   }) async {
-    final path = _docs[dakhila]?[type]?.filePath;
+    final document = _docs[dakhila]?[type];
+    final path = document?.filePath;
     if (type == DocType.PHOTO) {
       await DatabaseHelper.instance.clearImage(dakhila);
     } else {
@@ -505,6 +701,13 @@ class StudentProvider extends ChangeNotifier {
         debugPrint('Doc file delete failed: $e');
       }
     }
+    // Public gallery backup-ও একই document-এর সঙ্গে সরাই।
+    if (document != null && document.ext.toLowerCase() != 'pdf') {
+      final fileName = type == DocType.PHOTO
+          ? '$dakhila.${document.ext}'
+          : '${dakhila}_${type.name}.${document.ext}';
+      await GallerySaver.deleteFromGallery(fileName: fileName);
+    }
     _docs[dakhila]?.remove(type);
     for (final list in [_students, _filtered]) {
       final i = list.indexWhere((x) => x.dakhila == dakhila);
@@ -516,7 +719,7 @@ class StudentProvider extends ChangeNotifier {
         list[i].totalDocs = _docs[dakhila]?.length ?? 0;
       }
     }
-    _forikStats = await DatabaseHelper.instance.getForikStats();
+    await _refreshForikStats();
     notifyListeners();
   }
 
@@ -542,28 +745,33 @@ class StudentProvider extends ChangeNotifier {
     return (assigned: assigned, skipped: skipped);
   }
 
-  /// Settings: সব তোলা ছবি গ্যালারিতে (Pictures/DakhilaCamera) ব্যাকআপ —
-  /// একই নাম হলে replace হয়, তাই বারবার চালানো নিরাপদ।
-  /// রিটার্ন: সফলভাবে ব্যাকআপ হওয়া ছবির সংখ্যা।
+  /// Settings: সব image document গ্যালারির public Pictures/DakhilaCamera-তে
+  /// ব্যাকআপ করে। ফলে Android/data লুকানো থাকলেও PHOTO/BIRTH/FORM দেখা যায়।
+  /// PDF অ্যাপের নিজের FORM folder-এ থাকে; MediaStore image album-এ PDF রাখা হয় না।
   Future<int> backupAllToGallery({
     void Function(int done, int total)? onProgress,
   }) async {
-    final all = await DatabaseHelper.instance.getAllStudents();
-    final captured =
-        all.where((s) => s.isCaptured == 1 && s.imagePath != null).toList();
+    final docs = await DatabaseHelper.instance.getAllDocumentsMap();
+    final imageDocs = docs.values
+        .expand((byType) => byType.values)
+        .where((doc) => doc.ext.toLowerCase() != 'pdf')
+        .toList();
     var done = 0;
     var ok = 0;
-    for (final s in captured) {
-      final f = File(s.imagePath!);
+    for (final doc in imageDocs) {
+      final f = File(doc.filePath);
       if (await f.exists()) {
+        final fileName = doc.type == DocType.PHOTO
+            ? '${doc.dakhila}.${doc.ext}'
+            : '${doc.dakhila}_${doc.type.name}.${doc.ext}';
         final saved = await GallerySaver.saveToGallery(
-          filePath: s.imagePath!,
-          fileName: '${s.dakhila}.jpg',
+          filePath: doc.filePath,
+          fileName: fileName,
         );
         if (saved) ok++;
       }
       done++;
-      onProgress?.call(done, captured.length);
+      onProgress?.call(done, imageDocs.length);
     }
     return ok;
   }

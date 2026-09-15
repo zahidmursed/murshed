@@ -11,6 +11,7 @@ import '../services/export_service.dart';
 import '../utils/gallery_saver.dart';
 import 'camera_screen.dart';
 import 'image_viewer_screen.dart';
+import 'student_report_screen.dart';
 
 /// Phase 7: ছাত্রের ৩টি ডকুমেন্টের ড্যাশবোর্ড (PHOTO/BIRTH/FORM)।
 class DocumentDashboardScreen extends StatefulWidget {
@@ -83,20 +84,42 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
     if (confirmed != true || !mounted) return;
     setState(() => _busy = true);
     try {
-      await provider.removeDocument(
-          dakhila: widget.student.dakhila, type: type);
+      // কনসিসটেন্সি ফিক্স: PHOTO মোছাও এখন undo-যোগ্য — viewer/review-এর
+      // মতোই ট্র্যাশে যায় ও ৫ সেকেন্ড পুনরুদ্ধার পাওয়া যায়। BIRTH/FORM
+      // আগের মতোই সরাসরি মুছে যায়।
+      String? trashPath;
+      if (type == DocType.PHOTO) {
+        trashPath = await provider.clearCaptured(widget.student.dakhila);
+      } else {
+        await provider.removeDocument(
+            dakhila: widget.student.dakhila, type: type);
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('মুছে ফেলা হয়েছে')),
-      );
+      if (trashPath != null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: const Text('ছবি মুছে ফেলা হয়েছে'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'পুনরুদ্ধার',
+              onPressed: () => provider
+                  .restoreFromTrash(widget.student.dakhila, trashPath!),
+            ),
+          ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('মুছে ফেলা হয়েছে')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _viewDoc(StudentDocument doc) async {
-    final mime = doc.ext == 'pdf' ? 'application/pdf' : 'image/jpeg';
-    await GallerySaver.viewFile(path: doc.filePath, mime: mime);
+    await GallerySaver.viewFile(
+        path: doc.filePath, mime: doc.mimeTypeForView);
   }
 
   /// Phase 8: ছাত্রের সব ডক এক merged PDF-এ → শেয়ার শিট।
@@ -135,6 +158,22 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
             padding: const EdgeInsets.all(12),
             children: [
               _headerCard(withDocs),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _busy
+                      ? null
+                      : () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => StudentReportScreen(
+                                    student: widget.student)),
+                          ),
+                  icon: const Icon(Icons.assignment),
+                  label: const Text('রিপোর্ট ফরম দেখুন'),
+                ),
+              ),
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
@@ -291,7 +330,18 @@ class _DocumentDashboardScreenState extends State<DocumentDashboardScreen> {
             MaterialPageRoute(
                 builder: (_) => CameraScreen(student: widget.student)));
       }));
+      // ফিক্স: PHOTO-তেও ফাইল বাছুন — স্টুডিও/প্রস্তুত ছবি সরাসরি বসানো যায়
+      actions.add(
+          _btn(Icons.upload_file, 'ফাইল বাছুন', () => _pickDocument(type)));
     } else {
+      // BIRTH/FORM: ক্যামেরা দিয়েও তোলা যায় (পুরো পেজ, ক্রপ ছাড়া)
+      actions.add(_btn(Icons.photo_camera, 'ক্যামেরা', () {
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) =>
+                    CameraScreen(student: widget.student, docType: type)));
+      }));
       actions.add(
           _btn(Icons.upload_file, 'ফাইল বাছুন', () => _pickDocument(type)));
     }

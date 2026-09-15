@@ -20,8 +20,18 @@ class ExcelParser {
     'FORIK': 'FORIK_NO',
     'FATHER_NAME': 'FATHER_NAME',
     'FATHER': 'FATHER_NAME',
+    'GAR_MOB_NO': 'GAR_MOB_NO',
+    'GUARDIAN_MOBILE': 'GAR_MOB_NO',
+    'MOBILE': 'GAR_MOB_NO',
+    'MOBILE_NO': 'GAR_MOB_NO',
+    'PHONE': 'GAR_MOB_NO',
     'DAKHILA_YEAR': 'DAKHILA_YEAR',
     'YEAR': 'DAKHILA_YEAR',
+    // ফিক্স: Excel ইমপোর্টেও শিক্ষা-ক্রম/মারহালা/পরীক্ষার বছর হারাত না —
+    // ক্লাস dropdown-এর level-order অ্যাসেন্ডিং এগুলোর উপর নির্ভর করে।
+    'CLASS_LEVEL': 'CLASS_LEVEL',
+    'MARHALA': 'MARHALA',
+    'EXAM_YEAR': 'EXAM_YEAR',
   };
 
   /// xlsx bytes → DB-রেডি ম্যাপ (Student.toMap স্কিমা)।

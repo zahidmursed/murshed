@@ -5,11 +5,13 @@ import 'package:provider/provider.dart';
 
 import '../models/document.dart';
 import '../providers/student_provider.dart';
+import '../utils/contact_helper.dart';
 import 'camera_screen.dart';
 import 'document_dashboard_screen.dart';
 import 'export_screen.dart';
 import 'gallery_screen.dart';
 import 'settings_screen.dart';
+import 'student_report_screen.dart';
 
 class ListScreen extends StatefulWidget {
   const ListScreen({super.key});
@@ -32,7 +34,30 @@ class _ListScreenState extends State<ListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dakhila Camera'),
+        title: Consumer<StudentProvider>(
+          builder: (_, p, __) {
+            final logo = p.institutionLogoPath;
+            final hasLogo = logo != null && File(logo).existsSync();
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (hasLogo) ...[
+                  Image.file(File(logo),
+                      width: 30, height: 30, fit: BoxFit.contain),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: Text(
+                    p.institutionName.isEmpty
+                        ? 'Dakhila Camera'
+                        : p.institutionName,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
         backgroundColor: Colors.teal,
         actions: [
           Consumer<StudentProvider>(
@@ -184,7 +209,12 @@ class _ListScreenState extends State<ListScreen> {
                   return ListTile(
                     leading: captured
                         ? CircleAvatar(
-                            backgroundImage: FileImage(File(s.imagePath!)),
+                            // পারফরম্যান্স ফিক্স: থাম্বনেইলে পুরো রেজোলিউশন
+                            // ডিকোড নয় — 128px-এ (বড় লিস্টে মেমোরি ও jank কমায়)
+                            backgroundImage: ResizeImage(
+                              FileImage(File(s.imagePath!)),
+                              width: 128,
+                            ),
                             onBackgroundImageError: (_, __) {},
                             backgroundColor: Colors.grey,
                           )
@@ -192,13 +222,12 @@ class _ListScreenState extends State<ListScreen> {
                             backgroundColor: Colors.grey,
                             child: Icon(Icons.person, color: Colors.white),
                           ),
-                    title: Text('${s.dakhila} - ${s.stuName}',
+                    title: Text('${s.dakhila} - ${s.stuName} | ${s.fatherName}',
                         style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                            '${s.className} | ফরিক ${s.forikNo} | ${s.fatherName}'),
+                        Text('${s.className} | ফরিক ${s.forikNo}'),
                         const SizedBox(height: 3),
                         Row(
                           children: [
@@ -220,8 +249,52 @@ class _ListScreenState extends State<ListScreen> {
                               style: const TextStyle(
                                   fontSize: 11, color: Colors.black54),
                             ),
+                            const Spacer(),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints:
+                                  const BoxConstraints(minWidth: 28),
+                              tooltip: 'রিপোর্ট ফরম',
+                              icon: const Icon(Icons.assignment,
+                                  size: 18, color: Colors.teal),
+                              onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          StudentReportScreen(student: s))),
+                            ),
                           ],
                         ),
+                        if (s.guardianMobile.trim().isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Row(children: [
+                            const Icon(Icons.phone,
+                                size: 12, color: Colors.black45),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text('মোবাইল: ${s.guardianMobile.trim()}',
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Colors.black54)),
+                            ),
+                            _contactIcon(
+                                context,
+                                Icons.call,
+                                'সাধারণ কল',
+                                () => ContactHelper.openDialer(
+                                    s.guardianMobile.trim())),
+                            _contactIcon(
+                                context,
+                                Icons.chat,
+                                'হোয়াটসঅ্যাপ (কল/মেসেজ)',
+                                () async {
+                                  final intl = ContactHelper.normalizeBdMobile(
+                                      s.guardianMobile.trim());
+                                  if (intl == null) return false;
+                                  return ContactHelper.openWhatsAppChat(intl);
+                                }),
+                          ]),
+                        ],
                       ],
                     ),
                     onTap: () {
@@ -257,5 +330,26 @@ class _ListScreenState extends State<ListScreen> {
               fontSize: 22, fontWeight: FontWeight.bold, color: color)),
       Text(label)
     ]);
+  }
+
+  /// ছোট অ্যাকশন আইকন (কল/হোয়াটসঅ্যাপ) — ব্যর্থ হলে snackbar।
+  Widget _contactIcon(
+      BuildContext context, IconData icon, String tooltip,
+      Future<bool> Function() open) {
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 28),
+      tooltip: tooltip,
+      icon: Icon(icon, size: 18, color: Colors.teal),
+      onPressed: () async {
+        final ok = await open();
+        if (context.mounted && !ok) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('অ্যাপটি খোলা যায়নি')),
+          );
+        }
+      },
+    );
   }
 }
