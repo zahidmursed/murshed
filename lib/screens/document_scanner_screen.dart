@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -40,6 +41,7 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
   Uint8List? _merged;
   DocumentFilterMode _mode = DocumentFilterMode.magic;
   final Map<DocumentFilterMode, Uint8List> _previews = {};
+  bool _compare = false;
 
   @override
   void initState() {
@@ -76,6 +78,8 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
       _merged = merged;
       _previews.clear();
       if (!mounted) return;
+      // ডিফল্ট ফিল্টার = সেটিংসে বাছাই করা মোড
+      _mode = context.read<StudentProvider>().defaultDocFilter;
       setState(() => _processing = false);
       await _buildPreviews();
     } on ScannerException catch (e) {
@@ -169,6 +173,53 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
     }
   }
 
+  /// ML Kit-এর কর্নার ভুল হলে ম্যানুয়ালি ঠিক করা — বিদ্যমান uCrop এডিটরে
+  /// মুক্ত ক্রপ; কাটা ফল নতুন base হয় ও সব ফিল্টার-প্রিভিউ নতুন করে তৈরি হয়।
+  Future<void> _fixCorners() async {
+    final base = _merged;
+    if (base == null || _processing || _saving) return;
+    setState(() => _processing = true);
+    CroppedFile? crop;
+    try {
+      final tempSource =
+          await StorageService.temporaryCropSource(widget.student.dakhila);
+      await File(tempSource).writeAsBytes(base, flush: true);
+      crop = await ImageCropper().cropImage(
+        sourcePath: tempSource,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 95,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'কর্নার ঠিক করুন',
+            toolbarColor: Colors.teal,
+            toolbarWidgetColor: Colors.white,
+            lockAspectRatio: false,
+            hideBottomControls: false,
+          )
+        ],
+      );
+      final f = File(tempSource);
+      if (await f.exists()) await f.delete();
+    } catch (e) {
+      debugPrint('Fix corners failed: $e');
+    }
+    if (!mounted) return;
+    if (crop == null) {
+      // ইউজার বাতিল করেছে
+      setState(() => _processing = false);
+      return;
+    }
+    try {
+      final bytes = await crop.readAsBytes();
+      _merged = bytes;
+      _previews.clear();
+    } catch (e) {
+      debugPrint('Read cropped result failed: $e');
+    }
+    if (!mounted) return;
+    await _buildPreviews();
+  }
+
   String _modeLabel(DocumentFilterMode mode) => switch (mode) {
         DocumentFilterMode.original => 'Original — যেমন স্ক্যান হয়েছে',
         DocumentFilterMode.magic => 'Magic — সাদা ব্যাকগ্রাউন্ড, গাঢ় লেখা',
@@ -223,15 +274,45 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
     final preview = _previews[_mode];
     return Column(
       children: [
-        Expanded(
-          child: InteractiveViewer(
-            maxScale: 4,
-            child: Center(
-              child: preview == null
-                  ? const CircularProgressIndicator(color: Colors.teal)
-                  : Image.memory(preview, fit: BoxFit.contain),
-            ),
+        Container(
+          width: double.infinity,
+          color: Colors.black87,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: [
+              TextButton.icon(
+                onPressed: _processing || _saving
+                    ? null
+                    : () => setState(() => _compare = !_compare),
+                icon: Icon(
+                    _compare ? Icons.view_agenda : Icons.grid_view,
+                    color: Colors.white70,
+                    size: 18),
+                label: Text(_compare ? 'একটি দেখুন' : 'তুলনা করুন',
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 12)),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _processing || _saving ? null : _fixCorners,
+                icon: const Icon(Icons.crop, color: Colors.white70, size: 18),
+                label: const Text('কর্নার ঠিক করুন',
+                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+              ),
+            ],
           ),
+        ),
+        Expanded(
+          child: _compare
+              ? _compareView()
+              : InteractiveViewer(
+                  maxScale: 4,
+                  child: Center(
+                    child: preview == null
+                        ? const CircularProgressIndicator(color: Colors.teal)
+                        : Image.memory(preview, fit: BoxFit.contain),
+                  ),
+                ),
         ),
         Container(
           width: double.infinity,
@@ -301,6 +382,59 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _compareView() {
+    return GridView.count(
+      crossAxisCount: 2,
+      padding: const EdgeInsets.all(6),
+      childAspectRatio: 0.75,
+      children: [
+        for (final mode in DocumentFilterMode.values)
+          GestureDetector(
+            onTap: _saving
+                ? null
+                : () => setState(() {
+                      _mode = mode;
+                      _compare = false;
+                    }),
+            child: Container(
+              margin: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: _mode == mode ? Colors.tealAccent : Colors.white24,
+                  width: _mode == mode ? 2 : 1,
+                ),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: _previews[mode] != null
+                          ? Image.memory(_previews[mode]!, fit: BoxFit.contain)
+                          : const ColoredBox(color: Colors.grey),
+                    ),
+                    Positioned(
+                      left: 4,
+                      bottom: 4,
+                      child: Container(
+                        color: Colors.black54,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        child: Text(mode.name,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 11)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

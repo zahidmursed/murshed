@@ -590,6 +590,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? (value) => provider.setPassportPreset(value.first)
                             : null,
                       ),
+                      const SizedBox(height: 10),
+                      const Text('ডকুমেন্ট স্ক্যান — ডিফল্ট ফিল্টার',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      SegmentedButton<DocumentFilterMode>(
+                        segments: const [
+                          ButtonSegment(
+                              value: DocumentFilterMode.original,
+                              label: Text('Original')),
+                          ButtonSegment(
+                              value: DocumentFilterMode.magic,
+                              label: Text('Magic')),
+                          ButtonSegment(
+                              value: DocumentFilterMode.gray,
+                              label: Text('Gray')),
+                          ButtonSegment(
+                              value: DocumentFilterMode.bw, label: Text('B&W')),
+                        ],
+                        selected: {provider.defaultDocFilter},
+                        onSelectionChanged: (s) =>
+                            provider.setDefaultDocFilter(s.first),
+                      ),
                     ],
                   ),
                 ),

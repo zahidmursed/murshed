@@ -38,6 +38,13 @@ class StudentProvider extends ChangeNotifier {
     }
     institutionName = _prefs!.getString('institutionName') ?? '';
     institutionLogoPath = _prefs!.getString('institutionLogoPath');
+    final docFilter = _prefs!.getString('defaultDocFilter');
+    if (docFilter != null) {
+      defaultDocFilter = DocumentFilterMode.values.firstWhere(
+        (m) => m.name == docFilter,
+        orElse: () => DocumentFilterMode.magic,
+      );
+    }
   }
 
   final SharedPreferences? _prefs;
@@ -226,6 +233,15 @@ class StudentProvider extends ChangeNotifier {
     } else {
       await _prefs?.setString('institutionLogoPath', path);
     }
+    notifyListeners();
+  }
+
+  /// ডকুমেন্ট স্ক্যানের ডিফল্ট ফিল্টার (সেটিংসে বাছাই, স্ক্যান-স্ক্রিনে প্রয়োগ)।
+  DocumentFilterMode defaultDocFilter = DocumentFilterMode.magic;
+
+  void setDefaultDocFilter(DocumentFilterMode mode) {
+    defaultDocFilter = mode;
+    _prefs?.setString('defaultDocFilter', mode.name);
     notifyListeners();
   }
 
