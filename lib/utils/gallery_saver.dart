@@ -129,4 +129,19 @@ class GallerySaver {
       return false;
     }
   }
+
+  /// ইউজার একটি ফোল্ডার বাছে (SAF) — নেটিভ সাইড সেই ফোল্ডারের ফাইলগুলো
+  /// অ্যাপ ক্যাশের folder_import/ ডিরেক্টরিতে কপি (স্টেজ) করে।
+  /// রিটার্ন: null = বাতিল, -1 = ব্যর্থ, অন্যথায় স্টেজ হওয়া ফাইলসংখ্যা।
+  static Future<int?> pickAndStageFolder() async {
+    try {
+      return await _channel.invokeMethod<int>('pickAndStageFolder');
+    } on PlatformException catch (e) {
+      debugPrint('Folder stage failed: ${e.code} ${e.message}');
+      return -1;
+    } on MissingPluginException {
+      debugPrint('GallerySaver: platform channel not available');
+      return -1;
+    }
+  }
 }

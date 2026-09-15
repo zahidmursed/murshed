@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
@@ -21,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private val channelName = "dakhila_camera/gallery"
     private val albumName = "DakhilaCamera"
     private var galleryReadResult: MethodChannel.Result? = null
+    private var folderStageResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -108,6 +110,13 @@ class MainActivity : FlutterActivity() {
                         } catch (e: Exception) {
                             result.error("SHARE_FAILED", e.message, null)
                         }
+                    }
+                    "pickAndStageFolder" -> {
+                        // ইউজার SAF ট্রি-পিকারে ফোল্ডার বাছবে; ফলাফল
+                        // onActivityResult(3001)-এ এসে ব্যাকগ্রাউন্ডে স্টেজিং হবে।
+                        folderStageResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                        startActivityForResult(intent, 3001)
                     }
                     else -> result.notImplemented()
                 }
@@ -308,6 +317,74 @@ class MainActivity : FlutterActivity() {
         }
         startActivity(intent)
         return true
+    }
+
+    /// SAF ট্রি থেকে বাছাই করা ফোল্ডারের ফাইলগুলো ক্যাশের folder_import/-এ
+    /// কপি (স্টেজ) করে — ব্যাকগ্রাউন্ড থ্রেডে। রিটার্ন: স্টেজ হওয়া ফাইলসংখ্যা।
+    /// সাব-ফোল্ডার ভেতরে ঢোকে না — শুধু বাছাই করা ফোল্ডারের সরাসরি ফাইল।
+    private fun stageFolder(treeUri: Uri): Int {
+        val resolver = applicationContext.contentResolver
+        val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val childrenUri =
+            DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootDocId)
+        val stageDir = File(cacheDir, "folder_import")
+        stageDir.deleteRecursively()
+        stageDir.mkdirs()
+        var count = 0
+        resolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            ),
+            null, null, null
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val mime = cursor.getString(2)
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) continue
+                val name = cursor.getString(1) ?: continue
+                if (name.startsWith(".")) continue
+                val docId = cursor.getString(0)
+                val fileUri =
+                    DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                val dest = File(stageDir, name)
+                try {
+                    resolver.openInputStream(fileUri)?.use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    } ?: continue
+                    count++
+                } catch (e: Exception) {
+                    dest.delete()
+                }
+            }
+        }
+        return count
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 3001) {
+            val pending = folderStageResult
+            folderStageResult = null
+            val uri = data?.data
+            if (resultCode != RESULT_OK || uri == null) {
+                pending?.success(null) // বাতিল
+                return
+            }
+            Thread {
+                try {
+                    val count = stageFolder(uri)
+                    runOnUiThread { pending?.success(count) }
+                } catch (e: Exception) {
+                    runOnUiThread { pending?.error("STAGE_FAILED", e.message, null) }
+                }
+            }.start()
+        }
     }
 
     /// রিপোর্ট ফরমের মতো টেক্সট সিস্টেম শেয়ার শিটে পাঠায় (WhatsApp/SMS ইত্যাদি)।

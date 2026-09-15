@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import '../models/document.dart';
 import '../providers/student_provider.dart';
 import '../services/storage_service.dart';
 import '../utils/image_processor.dart';
@@ -26,6 +27,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _recovering = false;
   bool _migrating = false;
   bool _logoBusy = false;
+  bool _folderBusy = false;
+  bool _folderCancel = false;
+  String _folderStatus = '';
   String _backupStatus = '';
   String _recoverStatus = '';
   String _migrateStatus = '';
@@ -170,6 +174,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _logoBusy = false);
+    }
+  }
+
+  /// ফোল্ডার থেকে এক ধরনের ডকুমেন্ট বাল্ক-ইমপোর্ট (নাম = দাখিলা নম্বর)।
+  Future<void> _importFolder(DocType type) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${type.label} ফোল্ডার ইমপোর্ট'),
+        content: Text(
+            'ফোল্ডারের সব ফাইল ${type.label} হিসেবে ইমপোর্ট হবে।\n'
+            'প্রতিটি ফাইলের নাম দাখিলা নম্বর হতে হবে (যেমন 281.jpg)।'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('বাতিল'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ফোল্ডার বাছুন'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final provider = context.read<StudentProvider>();
+    setState(() {
+      _folderBusy = true;
+      _folderCancel = false;
+      _folderStatus = 'ফোল্ডার কপি হচ্ছে...';
+    });
+    try {
+      final res = await provider.importFolderDocuments(
+        type,
+        onProgress: (done, total) {
+          if (mounted) {
+            setState(() => _folderStatus = 'ইমপোর্ট হচ্ছে... $done/$total');
+          }
+        },
+        shouldStop: () => _folderCancel,
+      );
+      if (!mounted) return;
+      setState(() {
+        _folderStatus = res.cancelled
+            ? 'বাতিল — ${res.assigned} টি ইমপোর্ট হয়েছিল'
+            : (res.total == 0
+                ? 'ফোল্ডারে কোনো ফাইল পাওয়া যায়নি (সাব-ফোল্ডার নয়, ফাইলের ফোল্ডার বাছুন)'
+                : 'শেষ — ${res.assigned} সফল, ${res.skipped} স্কিপ (মোট ${res.total})');
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                '${type.label}: ${res.assigned} টি ইমপোর্ট, ${res.skipped} টি স্কিপ')),
+      );
+    } catch (e) {
+      debugPrint('Folder import failed: $e');
+      if (mounted) setState(() => _folderStatus = 'ব্যর্থ: $e');
+    } finally {
+      if (mounted) setState(() => _folderBusy = false);
     }
   }
 
@@ -404,6 +467,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'নাম ও লোগো অ্যাপ হেডার ও রিপোর্ট ফরমে দেখা যাবে',
                         style: TextStyle(fontSize: 11, color: Colors.black54),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(children: [
+                        Icon(Icons.folder_copy, color: Colors.deepPurple),
+                        SizedBox(width: 8),
+                        Text('ফোল্ডার থেকে ডকুমেন্ট ইমপোর্ট',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
+                      ]),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'ফাইলের নাম দাখিলা নম্বর হতে হবে (যেমন 281.jpg)। '
+                        'ফোল্ডারের সব ফাইল একটা একটা করে সঠিক ছাত্রের স্লটে বসবে। '
+                        'তিন ধরনের জন্য তিনবার ফোল্ডার বাছুন।',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed:
+                            _folderBusy ? null : () => _importFolder(DocType.PHOTO),
+                        icon: const Icon(Icons.photo_camera),
+                        label: const Text('ছবি ফোল্ডার ইমপোর্ট'),
+                      ),
+                      const SizedBox(height: 6),
+                      OutlinedButton.icon(
+                        onPressed:
+                            _folderBusy ? null : () => _importFolder(DocType.BIRTH),
+                        icon: const Icon(Icons.description),
+                        label: const Text('জন্মসনদ ফোল্ডার ইমপোর্ট'),
+                      ),
+                      const SizedBox(height: 6),
+                      OutlinedButton.icon(
+                        onPressed:
+                            _folderBusy ? null : () => _importFolder(DocType.FORM),
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('ফরম ফোল্ডার ইমপোর্ট'),
+                      ),
+                      if (_folderStatus.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(_folderStatus,
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.black87)),
+                      ],
+                      if (_folderBusy) ...[
+                        const SizedBox(height: 6),
+                        const LinearProgressIndicator(),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => _folderCancel = true,
+                            child: const Text('বাতিল করুন'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

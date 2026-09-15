@@ -745,6 +745,69 @@ class StudentProvider extends ChangeNotifier {
     return (assigned: assigned, skipped: skipped);
   }
 
+  /// ফোল্ডার থেকে এক ধরনের ডকুমেন্ট বাল্ক-ইমপোর্ট — প্রতিটি ফাইলের নাম
+  /// দাখিলা নম্বর হতে হবে (যেমন 281.jpg)। নেটিভ চ্যানেল আগে ফোল্ডারটি
+  /// ক্যাশের folder_import/-এ স্টেজ করে; প্রতিটি ফাইল ইমপোর্টের পরে সেই
+  /// কপি মুছে ফেলা হয় — ফলে স্টোরেজ চাপ এক ফোল্ডারের সমানই থাকে।
+  Future<({int assigned, int skipped, int total, bool cancelled})>
+      importFolderDocuments(
+    DocType type, {
+    void Function(int done, int total)? onProgress,
+    bool Function()? shouldStop,
+  }) async {
+    final stagedCount = await GallerySaver.pickAndStageFolder();
+    if (stagedCount == null) throw StateError('বাতিল করা হয়েছে');
+    if (stagedCount < 0) throw StateError('ফোল্ডার কপি করা যায়নি');
+    if (stagedCount == 0) {
+      return (assigned: 0, skipped: 0, total: 0, cancelled: false);
+    }
+
+    final stageDir = Directory(
+        '${(await getTemporaryDirectory()).path}/folder_import');
+    final files = <File>[];
+    await for (final e in stageDir.list(recursive: true)) {
+      if (e is File) files.add(e);
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
+
+    var assigned = 0;
+    var skipped = 0;
+    var cancelled = false;
+    var done = 0;
+    for (final f in files) {
+      if (shouldStop?.call() ?? false) {
+        cancelled = true;
+        break;
+      }
+      final stem = p.basenameWithoutExtension(f.path).trim();
+      final ext = p.extension(f.path).replaceFirst('.', '').toLowerCase();
+      final dakhila = RegExp(r'^\d+$').hasMatch(stem) ? stem : null;
+      try {
+        if (dakhila == null || !type.allowedExtensions.contains(ext)) {
+          throw StateError('bad file name or extension');
+        }
+        await assignDocument(dakhila: dakhila, type: type, srcPath: f.path);
+        assigned++;
+      } catch (_) {
+        skipped++;
+      }
+      try {
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+      done++;
+      onProgress?.call(done, files.length);
+    }
+    try {
+      if (await stageDir.exists()) await stageDir.delete(recursive: true);
+    } catch (_) {}
+    return (
+      assigned: assigned,
+      skipped: skipped,
+      total: files.length,
+      cancelled: cancelled,
+    );
+  }
+
   /// Settings: সব image document গ্যালারির public Pictures/DakhilaCamera-তে
   /// ব্যাকআপ করে। ফলে Android/data লুকানো থাকলেও PHOTO/BIRTH/FORM দেখা যায়।
   /// PDF অ্যাপের নিজের FORM folder-এ থাকে; MediaStore image album-এ PDF রাখা হয় না।
