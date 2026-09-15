@@ -42,6 +42,8 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
   DocumentFilterMode _mode = DocumentFilterMode.magic;
   final Map<DocumentFilterMode, Uint8List> _previews = {};
   bool _compare = false;
+  String? _pdfPath; // FORM: গুগলের প্রসেসড PDF (চাইলে সেভ করা যায়)
+  bool _saveAsPdf = false;
 
   @override
   void initState() {
@@ -55,33 +57,37 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
       _error = null;
     });
     try {
-      final paths = await ScannerService.scanDocument(pageLimit: 5);
+      final data = await ScannerService.scanDocument(
+          pageLimit: 5, includePdf: widget.type == DocType.FORM);
       if (!mounted) return;
-      if (paths.isEmpty) {
+      if (data.isEmpty) {
         Navigator.pop(context); // ইউজার বাতিল
         return;
       }
+      _pdfPath = data.pdfPath;
+      _saveAsPdf = false;
       setState(() {
         _scanning = false;
         _processing = true;
-        _pageCount = paths.length;
+        _pageCount = data.images.length;
       });
       // পেজগুলো লম্বা বাহু 1600px-এ সীমিত — ফাইল ছোট ও প্রসেস দ্রুত
       final pages = <Uint8List>[];
-      for (final path in paths) {
+      for (final path in data.images) {
         final bytes = await File(path).readAsBytes();
         final limited = await limitLongSideInIsolate(bytes, maxSide: 1600);
         pages.add(limited ?? bytes);
       }
-      final merged = await mergePagesVerticallyInIsolate(pages);
-      if (merged == null) throw StateError('empty scan');
+      // পেজ না থাকলে (শুধু-PDF ফল) মার্জ/প্রিভিউ বাদ — PDF-রেডি ভিউ দেখাবে
+      final merged =
+          pages.isEmpty ? null : await mergePagesVerticallyInIsolate(pages);
       _merged = merged;
       _previews.clear();
       if (!mounted) return;
       // ডিফল্ট ফিল্টার = সেটিংসে বাছাই করা মোড
       _mode = context.read<StudentProvider>().defaultDocFilter;
       setState(() => _processing = false);
-      await _buildPreviews();
+      if (merged != null) await _buildPreviews();
     } on ScannerException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -122,41 +128,53 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
   }
 
   Future<void> _save() async {
-    final merged = _merged;
-    if (merged == null || _saving) return;
+    if (_saving) return;
     final provider = context.read<StudentProvider>();
     setState(() => _saving = true);
     try {
-      final filtered = _mode == DocumentFilterMode.original
-          ? merged
-          : (await enhanceDocumentInIsolate(merged, _mode)) ?? merged;
-      final dir = await getTemporaryDirectory();
-      final stage = Directory('${dir.path}/DakhilaCamera/doc_scan');
-      if (!await stage.exists()) await stage.create(recursive: true);
-      final tempFile =
-          '${stage.path}/${widget.student.dakhila}_${widget.type.name}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await File(tempFile).writeAsBytes(filtered, flush: true);
-      await provider.assignDocument(
-        dakhila: widget.student.dakhila,
-        type: widget.type,
-        srcPath: tempFile,
-      );
-      // ক্যামেরা-ফ্লোর মতো গ্যালারি সিঙ্ক (v2 পাথ নিজেই হিসাব করি)
-      final v2Path = await StorageService.documentPath(
-        widget.student.className,
-        widget.student.forikNo,
-        widget.student.dakhila,
-        widget.type,
-        'jpg',
-      );
-      await GallerySaver.saveToGallery(
-        filePath: v2Path,
-        fileName: '${widget.student.dakhila}_${widget.type.name}.jpg',
-      );
-      try {
-        final f = File(tempFile);
-        if (await f.exists()) await f.delete();
-      } catch (_) {}
+      final pdfSource = _pdfPath;
+      if (_saveAsPdf && pdfSource != null) {
+        // গুগলের প্রসেসড PDF সরাসরি স্লটে (BIRTH-এ PDF নিষিদ্ধ — টগলই আসে না)
+        await provider.assignDocument(
+          dakhila: widget.student.dakhila,
+          type: widget.type,
+          srcPath: pdfSource,
+        );
+        // PDF MediaStore-ইমেজ নয় — গ্যালারি সিঙ্ক প্রযোজ্য নয়
+      } else {
+        final merged = _merged;
+        if (merged == null) throw StateError('no image');
+        final filtered = _mode == DocumentFilterMode.original
+            ? merged
+            : (await enhanceDocumentInIsolate(merged, _mode)) ?? merged;
+        final dir = await getTemporaryDirectory();
+        final stage = Directory('${dir.path}/DakhilaCamera/doc_scan');
+        if (!await stage.exists()) await stage.create(recursive: true);
+        final tempFile =
+            '${stage.path}/${widget.student.dakhila}_${widget.type.name}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        await File(tempFile).writeAsBytes(filtered, flush: true);
+        await provider.assignDocument(
+          dakhila: widget.student.dakhila,
+          type: widget.type,
+          srcPath: tempFile,
+        );
+        // ক্যামেরা-ফ্লোর মতো গ্যালারি সিঙ্ক (v2 পাথ নিজেই হিসাব করি)
+        final v2Path = await StorageService.documentPath(
+          widget.student.className,
+          widget.student.forikNo,
+          widget.student.dakhila,
+          widget.type,
+          'jpg',
+        );
+        await GallerySaver.saveToGallery(
+          filePath: v2Path,
+          fileName: '${widget.student.dakhila}_${widget.type.name}.jpg',
+        );
+        try {
+          final f = File(tempFile);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
@@ -243,6 +261,8 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
       );
     } else if (_error != null) {
       body = _errorView();
+    } else if (_merged == null && _pdfPath != null) {
+      body = _pdfReadyView();
     } else if (_processing || _merged == null) {
       body = Center(
         child: Column(
@@ -360,9 +380,25 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(_modeLabel(_mode),
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12)),
+                if (widget.type == DocType.FORM && _pdfPath != null) ...[
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'jpg', label: Text('JPG')),
+                      ButtonSegment(value: 'pdf', label: Text('PDF')),
+                    ],
+                    selected: {_saveAsPdf ? 'pdf' : 'jpg'},
+                    onSelectionChanged: _saving
+                        ? null
+                        : (s) => setState(() => _saveAsPdf = s.first == 'pdf'),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                Text(
+                  (_saveAsPdf && _pdfPath != null)
+                      ? 'PDF — গুগলের প্রসেসড ফাইল'
+                      : _modeLabel(_mode),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
                 const SizedBox(height: 6),
                 SizedBox(
                   width: double.infinity,
@@ -374,8 +410,14 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
                             height: 18,
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.save),
-                    label: Text(_saving ? 'সেভ হচ্ছে...' : '✅ সেভ করুন'),
+                        : Icon(_saveAsPdf && _pdfPath != null
+                            ? Icons.picture_as_pdf
+                            : Icons.save),
+                    label: Text(_saving
+                        ? 'সেভ হচ্ছে...'
+                        : (_saveAsPdf && _pdfPath != null
+                            ? '✅ PDF সেভ করুন'
+                            : '✅ সেভ করুন')),
                   ),
                 ),
               ],
@@ -436,6 +478,34 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  /// শুধু-PDF ফল (পেজ-ইমেজ না এলে) — সরাসরি PDF সেভ করার ভিউ।
+  Widget _pdfReadyView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.picture_as_pdf,
+              color: Colors.deepOrange, size: 64),
+          const SizedBox(height: 16),
+          Text('${widget.type.label} PDF প্রস্তুত',
+              style: const TextStyle(color: Colors.white, fontSize: 16)),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.save),
+            label: Text(_saving ? 'সেভ হচ্ছে...' : '✅ PDF সেভ করুন'),
+          ),
+        ],
+      ),
     );
   }
 

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/document.dart';
 import '../providers/student_provider.dart';
 import '../utils/contact_helper.dart';
+import 'batch_scan_screen.dart';
 import 'camera_screen.dart';
 import 'document_dashboard_screen.dart';
 import 'export_screen.dart';
@@ -67,6 +68,11 @@ class _ListScreenState extends State<ListScreen> {
                         value: p.isPassportMode,
                         onChanged: (v) => p.togglePassport(v)),
                   ])),
+          IconButton(
+            tooltip: 'ব্যাচ ডকুমেন্ট স্ক্যান',
+            icon: const Icon(Icons.document_scanner),
+            onPressed: _pickBatchType,
+          ),
           IconButton(
             tooltip: 'তোলা ছবি',
             icon: const Icon(Icons.photo_library),
@@ -321,6 +327,36 @@ class _ListScreenState extends State<ListScreen> {
         );
       }),
     );
+  }
+
+  /// ব্যাচ স্ক্যান — ধরন (BIRTH/FORM) বাছাই করে ব্যাচ-স্ক্রিনে যায়।
+  Future<void> _pickBatchType() async {
+    final type = await showDialog<DocType>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ব্যাচ ডকুমেন্ট স্ক্যান'),
+        content: const Text(
+            'কোন ধরনের ডকুমেন্ট স্ক্যান করবেন?\n'
+            'লিস্টে শুধু যাদের এই ডকুমেন্ট এখনো নেই তারাই দেখাবে।'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('বাতিল'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, DocType.BIRTH),
+            child: const Text('জন্মসনদ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, DocType.FORM),
+            child: const Text('নিবন্ধন ফরম'),
+          ),
+        ],
+      ),
+    );
+    if (type == null || !mounted) return;
+    Navigator.push(
+        context, MaterialPageRoute(builder: (_) => BatchScanScreen(type: type)));
   }
 
   Widget _stat(String label, String value, {Color? color}) {

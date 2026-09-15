@@ -1,0 +1,102 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../models/document.dart';
+import '../providers/student_provider.dart';
+import 'document_scanner_screen.dart';
+
+/// ব্যাচ স্ক্যান — একই ধরনের ডকুমেন্ট (BIRTH/FORM) অনেক ছাত্রের জন্য
+/// পরপর স্ক্যান করা। লিস্টে শুধু যাদের এই ডক এখনো নেই তারাই দেখায়;
+/// স্ক্যান-সেভ হয়ে ফিরলে লিস্ট নিজেই ছোট হয়ে যায়।
+class BatchScanScreen extends StatefulWidget {
+  final DocType type;
+
+  const BatchScanScreen({super.key, required this.type});
+
+  @override
+  State<BatchScanScreen> createState() => _BatchScanScreenState();
+}
+
+class _BatchScanScreenState extends State<BatchScanScreen> {
+  final Set<String> _scannedThisSession = {};
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('ব্যাচ স্ক্যান: ${widget.type.label}'),
+        backgroundColor: Colors.teal,
+      ),
+      body: Consumer<StudentProvider>(
+        builder: (context, provider, _) {
+          final pending = provider.students
+              .where((s) => provider.docOf(s.dakhila, widget.type) == null)
+              .toList();
+          return Column(
+            children: [
+              Container(
+                width: double.infinity,
+                color: Colors.teal.shade50,
+                padding: const EdgeInsets.all(10),
+                child: Text(
+                  'বাকি: ${pending.length} • এই সেশনে স্ক্যান: '
+                  '${_scannedThisSession.length}\n'
+                  'ছাত্রে ট্যাপ করুন → স্ক্যান হবে → ফিরে এসে পরেরটা করুন। '
+                  'হোম স্ক্রিনের ক্লাস/ফরিক ফিল্টার এখানেও প্রযোজ্য।',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              Expanded(
+                child: pending.isEmpty
+                    ? const Center(
+                        child: Text(
+                            'এই ধরনের সব ছাত্রের ডকুমেন্ট আছে ✓',
+                            textAlign: TextAlign.center),
+                      )
+                    : ListView.separated(
+                        itemCount: pending.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final s = pending[i];
+                          final fresh =
+                              _scannedThisSession.contains(s.dakhila);
+                          return ListTile(
+                            leading: Icon(
+                              Icons.description,
+                              color: fresh ? Colors.green : Colors.deepOrange,
+                            ),
+                            title: Text(
+                                '${s.dakhila} - ${s.stuName}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold)),
+                            subtitle: Text('${s.className} | ফরিক ${s.forikNo}'),
+                            trailing: fresh
+                                ? const Icon(Icons.check_circle,
+                                    color: Colors.green)
+                                : const Icon(Icons.chevron_right),
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => DocumentScannerScreen(
+                                        student: s, type: widget.type)),
+                              );
+                              if (!mounted) return;
+                              if (provider.docOf(s.dakhila, widget.type) !=
+                                  null) {
+                                setState(
+                                    () => _scannedThisSession.add(s.dakhila));
+                              }
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
