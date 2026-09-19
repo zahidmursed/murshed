@@ -1175,24 +1175,24 @@ class StudentProvider extends ChangeNotifier {
   }
 
   /// ডিভাইস থেকে বাছাই করা JSON ফাইল ইমপোর্ট (পুরনো ডেটার বদলে)।
-  Future<int> importFromJsonFile(String filePath) async {
+  Future<ReplaceReport> importFromJsonFile(String filePath) async {
     final raw = await File(filePath).readAsString();
     final List<Map<String, dynamic>> maps =
         await Isolate.run(() => Student.parseJsonToMaps(raw));
-    if (maps.isEmpty) return 0;
-    final imported = await DatabaseHelper.instance.replaceAllStudents(maps);
+    if (maps.isEmpty) return ReplaceReport();
+    final report = await DatabaseHelper.instance.replaceAllStudents(maps);
     await load();
-    return imported;
+    return report;
   }
 
   /// ডিভাইস থেকে বাছাই করা Excel (.xlsx) ফাইল ইমপোর্ট।
-  Future<int> importFromExcelFile(String filePath) async {
+  Future<ReplaceReport> importFromExcelFile(String filePath) async {
     final bytes = await File(filePath).readAsBytes();
     final maps = await ExcelParser.parseFromBytesInIsolate(bytes);
-    if (maps.isEmpty) return 0;
-    final imported = await DatabaseHelper.instance.replaceAllStudents(maps);
+    if (maps.isEmpty) return ReplaceReport();
+    final report = await DatabaseHelper.instance.replaceAllStudents(maps);
     await load();
-    return imported;
+    return report;
   }
 
   /// সব রেকর্ড মুছে বান্ডেল ডেটা পুনরায় ইমপোর্ট (পরের load()-এ)।

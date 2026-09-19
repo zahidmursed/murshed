@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../models/document.dart';
+import '../db/database_helper.dart' show ReplaceReport;
 import '../providers/student_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_service.dart';
@@ -59,7 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _importData({
     required List<String> extensions,
     required String label,
-    required Future<int> Function(String path) run,
+    required Future<Object> Function(String path) run,
   }) async {
     final List<PlatformFile> files;
     try {
@@ -76,10 +77,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() => _importing = true);
     try {
-      final imported = await run(path);
+      final result = await run(path);
       if (!mounted) return;
+      // Phase 1 (H2): রিপোর্ট এলে collision-সংখ্যাও দেখাই — এই দাখিলাগুলোর
+      // পুরনো ছবি/সম্পাদনা নতুন ছাত্রের নামে বসেনি (বছর-অমিল)।
+      var msg = '$label সম্পন্ন';
+      if (result is int) {
+        msg = '$result টি রেকর্ড ইমপোর্ট হয়েছে ✓';
+      } else if (result is ReplaceReport) {
+        msg = '${result.imported} টি রেকর্ড ইমপোর্ট হয়েছে ✓';
+        if (result.collisions.isNotEmpty) {
+          msg += ' — সতর্কতা: ${result.collisions.length} টি দাখিলার '
+              'পুরনো ছবি/তথ্য বছর-অমিলের কারণে সংরক্ষিত হয়নি '
+              '(${result.collisions.take(5).join(', ')}'
+              '${result.collisions.length > 5 ? '…' : ''})';
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$imported টি রেকর্ড ইমপোর্ট হয়েছে ✓')),
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
       );
     } catch (e) {
       debugPrint('Import error: $e');
@@ -351,8 +366,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('ডাটা রিসেট করবেন?'),
         content: const Text(
-            'সব রেকর্ড মুছে অ্যাপের বান্ডেল করা ডেটা আবার লোড হবে। '
-            'তোলা ছবির ফাইল ডিস্কে থেকে যাবে, তবে রেকর্ডের সংযোগ মুছে যাবে।'),
+            'সব রেকর্ড ও ডকুমেন্ট রেকর্ড মুছে অ্যাপের বান্ডেল করা ডেটা আবার লোড '
+            'হবে। তোলা ছবির ফাইল ডিস্কে থেকে যাবে, তবে রেকর্ডের সংযোগ মুছে যাবে। '
+            'রিসেটের আগে স্বয়ংক্রিয়ভাবে একটি ZIP ব্যাকআপ নেওয়া হবে।'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -366,10 +382,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
+    // Phase 1 (H2b): ধ্বংসাত্মক কাজের আগে auto-backup — ব্যর্থ হলে রিসেট আটকায় না
+    // (ইউজার সিদ্ধান্ত জেনেই রিসেট চেয়েছে), শুধু জানিয়ে দেয়।
+    String? backupPath;
+    try {
+      backupPath = await BackupService.backup(
+          institutionName: provider.institutionName);
+    } catch (e) {
+      debugPrint('Pre-reset auto-backup failed: $e');
+    }
+    // দ্বিতীয় নিশ্চিতকরণ (ব্যাকআপ ব্যর্থ হলে আরও স্পষ্ট সতর্কতা)।
+    if (!mounted) return;
+    final confirmed2 = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('নিশ্চিত?'),
+        content: Text(backupPath == null
+            ? 'স্বয়ংক্রিয় ব্যাকআপ ব্যর্থ হয়েছে। ব্যাকআপ ছাড়াই রিসেট করবেন? '
+                'এই কাজ ফেরানো যাবে না।'
+            : 'ব্যাকআপ সেভ হয়েছে:\n$backupPath\n\nরিসেট চূড়ান্ত করবেন? '
+                'এই কাজ ফেরানো যাবে না।'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('বাতিল'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('হ্যাঁ, রিসেট করুন',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed2 != true) return;
     await provider.resetData();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ডাটা রিসেট সম্পন্ন')),
+        SnackBar(
+            content: Text(backupPath == null
+                ? 'ডাটা রিসেট সম্পন্ন (ব্যাকআপ ছাড়া)'
+                : 'ডাটা রিসেট সম্পন্ন — ব্যাকআপ: $backupPath')),
       );
     }
   }

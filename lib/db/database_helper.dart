@@ -12,6 +12,17 @@ import '../models/student.dart';
 import '../models/teacher.dart';
 import '../services/teacher_directory.dart';
 
+/// replaceAllStudents()-এর ফল-রিপোর্ট (Phase 1 H2 collision-গার্ড)।
+class ReplaceReport {
+  /// ইমপোর্ট হওয়া রেকর্ড সংখ্যা (replaceAllStudents শেষে সেট হয়)।
+  int imported = 0;
+
+  /// দাখিলা একই কিন্তু বছর-জোড়া (dakhila_year|exam_year) ভিন্ন — এই
+  /// দাখিলাগুলোর পুরনো ছবি/সম্পাদনা/ডক নতুন ছাত্রের নামে বসেনি।
+  /// UI-তে ইউজারকে দেখানো হয় যেন নতুন ব্যাচের এই ছাত্রদের ছবি নতুন করে তোলা হয়।
+  final List<String> collisions = <String>[];
+}
+
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
@@ -594,6 +605,31 @@ class DatabaseHelper {
     await _recalcTotalDocs(db, dakhila);
   }
 
+  /// সরল ইনসার্ট-সহায়ক (টেস্ট/সিড): ext ও mime পাথ থেকে অনুমিত করে।
+  Future<void> insertDocument(
+      String dakhila, String type, String path) async {
+    final dot = path.lastIndexOf('.');
+    final ext = dot >= 0 ? path.substring(dot + 1).toLowerCase() : 'jpg';
+    final doc = StudentDocument(
+      dakhila: dakhila,
+      type: DocType.values.firstWhere(
+          (t) => t.name == type.toUpperCase(),
+          orElse: () => DocType.PHOTO),
+      filePath: path,
+      ext: ext,
+      mimeType: StudentDocument.mimeTypeForExt(ext),
+    );
+    await upsertDocument(doc);
+  }
+
+  /// নির্দিষ্ট দাখিলার সব ডকুমেন্ট (টেস্ট/যাচাই-বান্ধব)।
+  Future<List<StudentDocument>> getDocuments(String dakhila) async {
+    final db = await database;
+    final rows = await db.query('documents', where: 'dakhila = ?',
+        whereArgs: [dakhila]);
+    return rows.map(StudentDocument.fromRow).toList();
+  }
+
   /// সব ডকুমেন্ট: dakhila → (DocType → StudentDocument)।
   Future<Map<String, Map<DocType, StudentDocument>>>
       getAllDocumentsMap() async {
@@ -768,37 +804,51 @@ class DatabaseHelper {
     'mother_name_ar',
   ];
 
-  /// কাস্টম ইমপোর্ট: পুরনো ডেটার বদলে নতুন ডেটা বসে (এক ট্রানজেকশনে)।
-  /// একই দাখিলা নতুন ডেটাতে থাকলে তোলা ছবির স্ট্যাটাস প্রিজার্ভ হয়;
-  /// অ্যাপে সম্পাদিত (is_edited=1) রেকর্ডের সম্পাদনাও সংরক্ষিত থাকে (স্তর ৬)।
-  Future<int> replaceAllStudents(List<Map<String, dynamic>> maps) async {
+  ///
+  /// Phase 1 (H2 collision-গার্ড): সংরক্ষণ যাচাইকৃত — পুরনো ও নতুন রেকর্ডের
+  /// `dakhila_year`/`exam_year` **হুবহু মিললে** কেবল তখনই capture/edited/ডক
+  /// প্রিজার্ভ হয়। একই দাখিলা কিন্তু ভিন্ন বছর (নতুন ব্যাচ) = ভিন্ন ব্যক্তি —
+  /// আগের ছাত্রের ছবি/সম্পাদনা আর নতুন ছাত্রের নামে বসবে না।
+  /// `preserveCaptures: false` দিলে সম্পূর্ণ তাজা ইমপোর্ট (কিছুই বহন নয়)।
+  Future<ReplaceReport> replaceAllStudents(List<Map<String, dynamic>> maps,
+      {bool preserveCaptures = true}) async {
     final db = await database;
-    var imported = 0;
+    final report = ReplaceReport();
     await db.transaction((txn) async {
       final old = await txn.query('students', columns: [
         'dakhila',
         'image_path',
         'is_captured',
         'is_edited',
+        'dakhila_year',
+        'exam_year',
         ..._preservedEditableCols,
         ..._preservedNameCols,
       ]);
-      final captureByDakhila = <String, String?>{
+      String yearsOf(Map<String, dynamic> r) =>
+          '${r['dakhila_year'] ?? ''}|${r['exam_year'] ?? ''}';
+
+      final captureByDakhila = <String, (String, String?)>{
         for (final r in old)
           if ((r['is_captured'] as int?) == 1)
-            (r['dakhila'] as String? ?? ''): r['image_path'] as String?,
+            (r['dakhila'] as String? ?? ''): (
+              yearsOf(r),
+              r['image_path'] as String?,
+            ),
       };
-      // স্তর ৬: সম্পাদিত রেকর্ডের কলাম-মান সংরক্ষণের তালিকা
-      final editedByDakhila = <String, Map<String, dynamic>>{
+      final editedByDakhila = <String, (String, Map<String, dynamic>)>{
         for (final r in old)
-          if ((r['is_edited'] as int?) == 1) (r['dakhila'] as String? ?? ''): r,
+          if ((r['is_edited'] as int?) == 1)
+            (r['dakhila'] as String? ?? ''): (yearsOf(r), r),
       };
-      // নামের ইংরেজি/আরবী কলাম — প্রতিটি পুরনো রেকর্ডের মান
-      final namesByDakhila = <String, Map<String, dynamic>>{
+      final namesByDakhila = <String, (String, Map<String, dynamic>)>{
         for (final r in old)
-          (r['dakhila'] as String? ?? ''): {
-            for (final col in _preservedNameCols) col: r[col],
-          },
+          (r['dakhila'] as String? ?? ''): (
+            yearsOf(r),
+            {
+              for (final col in _preservedNameCols) col: r[col],
+            }
+          ),
       };
       // ইন্টিগ্রিটি ফিক্স: FK cascade চালু থাকায় students মুছলে documents rows-ও
       // মুছে যেত — তাই আগে স্ন্যাপশট নিয়ে নতুন ছাত্র বসানোর পরে ফিরিয়ে বসানো
@@ -807,30 +857,31 @@ class DatabaseHelper {
       await txn.delete('students');
       final batch = txn.batch();
       for (final source in maps) {
-        // defensive copy — কলারের ম্যাপে টাইপ ভিন্ন হলেও নিরাপদ
         final m = Map<String, dynamic>.from(source);
         final dakhila = m['dakhila'] as String? ?? '';
-        if (captureByDakhila.containsKey(dakhila)) {
-          m['image_path'] = captureByDakhila[dakhila];
-          m['is_captured'] = 1;
+        final newYears = '${m['dakhila_year'] ?? ''}|${m['exam_year'] ?? ''}';
+        // H2: capture প্রিজার্ভ — শুধুমাত্র বছর-জোড়া হুবহু মিললে
+        if (preserveCaptures && captureByDakhila.containsKey(dakhila)) {
+          final (oldYears, oldPath) = captureByDakhila[dakhila]!;
+          if (oldYears == newYears) {
+            m['image_path'] = oldPath;
+            m['is_captured'] = 1;
+          } else {
+            report.collisions.add(dakhila);
+          }
         }
         final edited = editedByDakhila[dakhila];
-        if (edited != null) {
-          // ইমপোর্টের খালি মান দিয়েও সম্পাদনা নষ্ট হবে না:
-          // পুরনো অ-খালি মান জিতে যায়
+        if (edited != null && edited.$1 == newYears) {
           for (final col in _preservedEditableCols) {
-            final oldV = edited[col];
+            final oldV = edited.$2[col];
             if (oldV is String && oldV.isNotEmpty) m[col] = oldV;
           }
           m['is_edited'] = 1;
         }
-        // নামের ইংরেজি/আরবী — is_edited নির্বিশেষে সংরক্ষিত: বান্ডেল ডেটায়
-        // এসব কলাম কখনো আসে না; ইমপোর্টে নতুন মান থাকলে সেটাই জেতে,
-        // নইলে আগের ভরা মান অক্ষত থাকে
         final oldNames = namesByDakhila[dakhila];
-        if (oldNames != null) {
+        if (oldNames != null && oldNames.$1 == newYears) {
           for (final col in _preservedNameCols) {
-            final v = oldNames[col] as String?;
+            final v = oldNames.$2[col] as String?;
             if (v != null && v.isNotEmpty && (m[col] as String? ?? '').isEmpty) {
               m[col] = v;
             }
@@ -840,15 +891,30 @@ class DatabaseHelper {
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
-      // documents পুনঃস্থাপন — নতুন ডেটায় যাদের দাখিলা আছে কেবল তাদের ডক
-      // (ছবি/জন্মসনদ/ফরম স্লট ইমপোর্টে অক্ষত থাকে, আগের আচরণ বজায়)
+      // documents পুনঃস্থাপন — নতুন ডেটায় যাদের দাখিলা আছে কেবল তাদের ডক;
+      // H2: বছর-মিল না হলে ডক-স্লটও নতুন ছাত্রের নামে বসবে না।
       final keptDakhilas = <String>{
         for (final m in maps) (m['dakhila'] as String? ?? ''),
+      };
+      // H2: পুরনো বছর-জোড়া একবারই ম্যাপে তুলি (লুপে লুপ নয়)
+      final oldYearsByDakhila = <String, String>{
+        for (final r in old)
+          (r['dakhila'] as String? ?? ''): yearsOf(r),
       };
       final docBatch = txn.batch();
       for (final r in docRows) {
         final d = (r['dakhila'] as String?) ?? '';
         if (d.isEmpty || !keptDakhilas.contains(d)) continue;
+        if (preserveCaptures && oldYearsByDakhila.containsKey(d)) {
+          final newM = maps.firstWhere(
+            (m) => (m['dakhila'] as String? ?? '') == d,
+            orElse: () => const {},
+          );
+          final newYears = '${newM['dakhila_year'] ?? ''}|${newM['exam_year'] ?? ''}';
+          if (oldYearsByDakhila[d] != newYears) {
+            continue; // ভিন্ন বছর = ভিন্ন ব্যক্তি — ডক স্লট বহন নয়
+          }
+        }
         docBatch.insert('documents', r,
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -859,9 +925,9 @@ class DatabaseHelper {
       await txn.execute(
           'UPDATE students SET total_docs = (SELECT COUNT(*) FROM documents '
           'WHERE documents.dakhila = students.dakhila)');
-      imported = maps.length;
+      report.imported = maps.length;
     });
-    return imported;
+    return report;
   }
 
   /// সব রেকর্ড মুছে ফেলে — পরের load()-এ বান্ডেল ডেটা আবার ইমপোর্ট হবে।

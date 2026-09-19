@@ -126,7 +126,7 @@ void main() {
         'dakhila_year': '2026',
       },
     ]);
-    expect(imported, 2);
+    expect(imported.imported, 2);
 
     // সম্পাদিত রেকর্ডের সম্পাদনা টিকে আছে (ইমপোর্টের মান জিতে যায়নি)
     final after281 =

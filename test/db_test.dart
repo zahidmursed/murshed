@@ -96,7 +96,7 @@ void main() {
     ];
     final imported =
         await DatabaseHelper.instance.replaceAllStudents(customMaps);
-    expect(imported, 2);
+    expect(imported.imported, 2);
     final afterImport = await DatabaseHelper.instance.getAllStudents();
     expect(afterImport.length, 2);
     final preserved = afterImport.firstWhere((s) => s.dakhila == '281');
