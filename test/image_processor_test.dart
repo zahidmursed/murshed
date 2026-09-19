@@ -135,6 +135,46 @@ void main() {
       expect(outLuma, greaterThan(inLuma + 100));
     });
 
+    test('bw keeps text dark inside shadow (adaptive threshold)', () async {
+      final page = img.Image(width: 200, height: 100);
+      img.fill(page, color: img.ColorRgb8(240, 240, 240));
+      // নিচের অর্ধেকে ছায়া (ধূসর কাগজ)
+      img.fillRect(page, x1: 0, y1: 50, x2: 199, y2: 99,
+          color: img.ColorRgb8(180, 180, 180));
+      // উপরে ও নিচে — দুই জায়গাতেই লেখার দাগ
+      img.fillRect(page, x1: 20, y1: 10, x2: 21, y2: 40,
+          color: img.ColorRgb8(40, 40, 40));
+      img.fillRect(page, x1: 20, y1: 60, x2: 21, y2: 90,
+          color: img.ColorRgb8(40, 40, 40));
+      final src = Uint8List.fromList(img.encodeJpg(page));
+      final out = await enhanceDocumentInIsolate(src, DocumentFilterMode.bw);
+      expect(out, isNotNull);
+      final d = img.decodeImage(out!)!;
+      // লেখা — ছায়ার ভিতরে-বাইরে দুই জায়গাতেই কালো
+      expect(d.getPixel(20, 25).luminance, lessThan(100));
+      expect(d.getPixel(20, 75).luminance, lessThan(100));
+      // কাগজ — উজ্জ্বল ও ছায়ামাখা — দুটোই সাদা
+      expect(d.getPixel(150, 25).luminance, greaterThan(180));
+      expect(d.getPixel(150, 75).luminance, greaterThan(180));
+    });
+
+    test('magic evens out shadow gradient (illumination division)', () async {
+      final page = img.Image(width: 200, height: 100);
+      // বাম উজ্জ্বল (200) → ডান ছায়ামাখা (120) গ্রেডিয়েন্ট
+      for (var x = 0; x < 200; x++) {
+        final v = (200 - x * 80 ~/ 199).clamp(0, 255);
+        img.drawLine(page, x1: x, y1: 0, x2: x, y2: 99,
+            color: img.ColorRgb8(v, v, v));
+      }
+      final src = Uint8List.fromList(img.encodeJpg(page));
+      final out = await enhanceDocumentInIsolate(src, DocumentFilterMode.magic);
+      expect(out, isNotNull);
+      final d = img.decodeImage(out!)!;
+      // উজ্জ্বল ও ছায়ামাখা — দুই পাশই কাগজের মতো সাদা হওয়া চাই
+      expect(d.getPixel(30, 50).luminance, greaterThan(220));
+      expect(d.getPixel(170, 50).luminance, greaterThan(220));
+    });
+
     test('limitLongSideInIsolate caps the long side', () async {
       final src = Uint8List.fromList(img.encodeJpg(solid(800, 400, 10, 200, 10)));
       final out = await limitLongSideInIsolate(src, maxSide: 400);

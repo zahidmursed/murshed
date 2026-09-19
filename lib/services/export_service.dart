@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:csv/csv.dart';
+import 'package:excel/excel.dart' as xl;
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -220,6 +221,108 @@ class ExportService {
     );
     await File(csvPath).writeAsString(_statusCsvContent(scope), encoding: utf8);
     return csvPath;
+  }
+
+  /// Excel (xlsx) — পূর্ণ তথ্য: নাম (বাংলা/ইংরেজি/আরবী), পিতা-মাতা
+  /// (তিন লিপিতে), মোবাইল, ক্লাস/ফরিক, নম্বর, ঠিকানা, ডকুমেন্ট-স্ট্যাটাস।
+  /// ক্লাস/ফরিক ফিল্টার-সমর্থিত; [outDir] টেস্টে ওভাররাইড।
+  /// পারফরম্যান্স: ওয়ার্কবুক তৈরি isolate-এ (৪২৩৮ রো × ২৮ কলামেও UI ফ্রিজ নেই)।
+  /// নিরাপত্তা: সব মান TextCellValue (আক্ষরিক টেক্সট) — সেল-মান কখনো
+  /// ফর্মুলা হিসেবে চলে না, তাই formula-injection ঝুঁকি নেই।
+  static Future<String> exportStudentsXlsx({
+    String? classFilter,
+    String? forikFilter,
+    String? outDir,
+  }) async {
+    final dir = outDir ?? await ensureExportDir();
+    final scope =
+        await _loadScope(classFilter: classFilter, forikFilter: forikFilter);
+    if (scope.isEmpty) {
+      throw StateError('এই স্কোপে কোনো ছাত্র নেই');
+    }
+
+    // প্লেইন মানে রূপান্তর — isolate-এ পাঠানোর জন্য (সেন্ডেবল টাইপ)
+    final rows = <List<Object?>>[
+      for (final swd in scope) _rowValues(swd),
+    ];
+
+    final bytes = await Isolate.run(() => _buildXlsxBytes(rows));
+    final path = p.join(
+      dir,
+      'Students_${_scopeTag(classFilter: classFilter, forikFilter: forikFilter)}_${_stamp()}.xlsx',
+    );
+    await File(path).writeAsBytes(bytes, flush: true);
+    return path;
+  }
+
+  /// এক ছাত্রের সারি-মান (২৮ কলাম) — isolate-এ পাঠানোর উপযোগী প্লেইন টাইপ।
+  static List<Object?> _rowValues(StudentWithDocs swd) {
+    final s = swd.student;
+    String mark(DocType t) => swd.docs[t] != null ? '✓' : '✗';
+    return [
+      s.dakhila,
+      s.stuName,
+      s.stuNameEn,
+      s.stuNameAr,
+      s.fatherName,
+      s.fatherNameEn,
+      s.fatherNameAr,
+      s.motherName,
+      s.motherNameEn,
+      s.motherNameAr,
+      s.guardianMobile,
+      s.className,
+      s.classLevel,
+      s.forikNo,
+      s.marhala,
+      s.examYear,
+      s.dakhilaYear,
+      s.birthDate,
+      s.birthCertNo,
+      s.addressFull,
+      s.avgMonth,
+      s.avg1st,
+      s.avg2nd,
+      s.avgFinal,
+      mark(DocType.PHOTO),
+      mark(DocType.BIRTH),
+      mark(DocType.FORM),
+      s.totalDocs,
+    ];
+  }
+
+  /// ওয়ার্কবুক তৈরি (isolate-এ চলে — বিশুদ্ধ CPU কাজ)।
+  static Uint8List _buildXlsxBytes(List<List<Object?>> rows) {
+    final excel = xl.Excel.createExcel();
+    excel.rename('Sheet1', 'ছাত্র-তথ্য');
+    final sheet = excel.sheets['ছাত্র-তথ্য'];
+    if (sheet == null) throw StateError('Excel শিট তৈরি ব্যর্থ');
+
+    const headers = <String>[
+      'দাখিলা',
+      'নাম (বাংলা)', 'নাম (ইংরেজি)', 'নাম (আরবী)',
+      'পিতা (বাংলা)', 'পিতা (ইংরেজি)', 'পিতা (আরবী)',
+      'মাতা (বাংলা)', 'মাতা (ইংরেজি)', 'মাতা (আরবী)',
+      'মোবাইল', 'ক্লাস', 'লেভেল', 'ফরিক', 'মারহালা',
+      'পরীক্ষার বছর', 'দাখিলা বছর', 'জন্ম তারিখ', 'জন্মসনদ নম্বর',
+      'ঠিকানা', 'মাসিক', 'প্রথম সাময়িক', 'দ্বিতীয় সাময়িক', 'বার্ষিক',
+      'ছবি', 'জন্মসনদ (ডক)', 'ফরম (ডক)', 'মোট ডক',
+    ];
+    sheet.appendRow(
+        <xl.CellValue?>[for (final h in headers) xl.TextCellValue(h)]);
+
+    for (final row in rows) {
+      sheet.appendRow(<xl.CellValue?>[
+        for (final v in row)
+          v is int ? xl.IntCellValue(v) : xl.TextCellValue(v?.toString() ?? ''),
+      ]);
+    }
+
+    final bytes = excel.save(fileName: 'Students.xlsx');
+    if (bytes == null || bytes.isEmpty) {
+      throw StateError('Excel ফাইল তৈরি ব্যর্থ');
+    }
+    return Uint8List.fromList(bytes);
   }
 
   /// প্রিন্ট শিট: A4 পেজে ৯টি করে ছবি (3×3), নিচে দাখিলা নম্বর।

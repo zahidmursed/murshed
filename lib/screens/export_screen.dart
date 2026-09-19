@@ -40,6 +40,11 @@ class _ExportScreenState extends State<ExportScreen> {
           forikFilter: forikFilter,
           onProgress: _onProgress,
         );
+      } else if (kind == 'xlsx') {
+        path = await ExportService.exportStudentsXlsx(
+          classFilter: classFilter,
+          forikFilter: forikFilter,
+        );
       } else if (kind == 'csv') {
         path = await ExportService.exportMissingCsv(
           classFilter: classFilter,
@@ -60,11 +65,13 @@ class _ExportScreenState extends State<ExportScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('সেভ হয়েছে: $path')),
       );
-      final mime = kind == 'zip'
-          ? 'application/zip'
-          : kind == 'csv'
-              ? 'text/csv'
-              : 'application/pdf';
+      final mime = switch (kind) {
+        'zip' => 'application/zip',
+        'xlsx' =>
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'csv' => 'text/csv',
+        _ => 'application/pdf',
+      };
       await GallerySaver.shareFile(path: path, mime: mime);
     } on StateError catch (e) {
       if (!mounted) return;
@@ -124,6 +131,17 @@ class _ExportScreenState extends State<ExportScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              _tile(
+                icon: Icons.table_view,
+                color: Colors.green,
+                title: 'Excel-এ পূর্ণ তথ্য (xlsx)',
+                subtitle:
+                    'নাম (বাংলা/ইংরেজি/আরবী), পিতা-মাতা, নম্বর, ঠিকানা, '
+                    'ডক-স্ট্যাটাস — নির্বাচিত স্কোপে',
+                busy: _busy == 'xlsx',
+                progress: _busy == 'xlsx' ? _progressText : '',
+                onTap: _busy != null ? null : () => _run('xlsx'),
+              ),
               _tile(
                 icon: Icons.folder_zip,
                 color: Colors.teal,

@@ -6,6 +6,18 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
 
+/// Secret resolution: **environment variable first** (CI / secret-manager
+/// friendly — পাসওয়ার্ড কোনো ফাইলে না রেখেই বিল্ড করা যায়), তারপর local
+/// key.properties। নাম দুটোতেই এক: storePassword, keyPassword, keyAlias,
+/// storeFile (SECURITY-KEY-ROTATION.md দেখুন)।
+fun secret(name: String): String? =
+    System.getenv(name)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+
+val hasSigningSecrets =
+    listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+        .all { !secret(it).isNullOrBlank() }
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -37,17 +49,18 @@ android {
 
     signingConfigs {
         create("upload") {
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["storePassword"] as String
+            keyAlias = secret("keyAlias")
+            keyPassword = secret("keyPassword")
+            storeFile = secret("storeFile")?.let { file(it) }
+            storePassword = secret("storePassword")
         }
     }
 
     buildTypes {
         release {
-            // key.properties থাকলে release keystore, না থাকলে debug key
-            signingConfig = if (keystorePropertiesFile.exists()) {
+            // env-ভেরিয়েবল বা key.properties — যেকোনো একটায় সম্পূর্ণ সিক্রেট
+            // থাকলে release signing, নইলে debug key (আগের আচরণ অপরিবর্তিত)
+            signingConfig = if (hasSigningSecrets) {
                 signingConfigs.getByName("upload")
             } else {
                 signingConfigs.getByName("debug")

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'providers/case_notes_provider.dart';
 import 'providers/student_provider.dart';
+import 'providers/teacher_provider.dart';
 import 'screens/list_screen.dart';
 import 'screens/trial_expired_screen.dart';
 import 'services/trial_service.dart';
@@ -22,8 +24,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => StudentProvider(prefs: prefs),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => StudentProvider(prefs: prefs)),
+        ChangeNotifierProvider(create: (_) => TeacherProvider()),
+        ChangeNotifierProvider(create: (_) => CaseNotesProvider()),
+      ],
       child: Consumer<StudentProvider>(
         builder: (_, provider, __) => MaterialApp(
           debugShowCheckedModeBanner: false,

@@ -1,9 +1,6 @@
 # Dakhila Camera — প্রোজেক্ট বিশ্লেষণ ও পরিকল্পনা
 
 > তৈরি: 2026-09-14 | Flutter 3.47.4 (stable) • Dart 3.13.3 • Android target
->
-> ⚡ **Active plan: `PLAN-V3-ADVANCED.md`** — 2026-09-14 থেকে এটিই মূল রোডম্যাপ।
-> এই ফাইলটি ইতিহাস (Phase 1–4 ফলাফল) + বিস্তারিত ব্যাকলগ (Phase 5) হিসেবে রাখা হলো।
 
 ---
 
@@ -79,7 +76,7 @@ DB update (`is_captured=1`) → serial mode হলে `pushReplacement` পর�
 
 ## ৪. পরিকল্পনা (Phased Roadmap)
 
-### Phase 1 — জরুরি বাগ ফিক্স (≈ আধা দিন) — ✅ সম্পন্ন (2026-09-14)
+### Phase 1 — জরুরি বাগ ফিক্স (≈ আধা দিন)
 | # | কাজ | ফাইল |
 |---|---|---|
 | 1.1 | `_setupCamera()`-এ try/catch + permission/init error UI + "আবার চেষ্টা করুন" বাটন | camera_screen.dart |
@@ -91,14 +88,7 @@ DB update (`is_captured=1`) → serial mode হলে `pushReplacement` পর�
 **Validation:** `flutter analyze` (নতুন warning শূন্য) + আসল ডিভাইসে serial-mode
 ফ্লো + প্রথম রানে ইমপোর্টের সময় UI freeze নেই।
 
-### Phase 2 — রিফ্যাক্টর + টেস্ট (≈ ১ দিন) — ✅ সম্পন্ন (2026-09-14)
-
-> **বাস্তবায়নের ফলাফল:** `flutter analyze` → No issues (২১টি info থেকে ০) •
-> `flutter test` → ৯/৯ পাস (মডেল ×৪, image processor ×৪, sqflite_ffi DB ইন্টিগ্রেশন ×১) •
-> প্রথম git commit সম্পন্ন। নতুন ফাইল: `lib/utils/image_processor.dart`,
-> `test/image_processor_test.dart`, `test/db_test.dart`।
-> নোট: `image` প্যাকেজ অবৈধ bytes-এ exception ছোড়ে — `processPassportBytes`
-> try/catch দিয়ে null-চুক্তি রক্ষা করা হয়েছে।
+### Phase 2 — রিফ্যাক্টর + টেস্ট (≈ ১ দিন)
 | # | কাজ |
 |---|---|
 | 2.1 | `lib/utils/image_processor.dart`: pure ফাংশন `processPassport(bytes) → bytes` (crop math ইউনিট-টেস্টেবল) |
@@ -109,53 +99,16 @@ DB update (`is_captured=1`) → serial mode হলে `pushReplacement` পর�
 
 **Validation:** `flutter test` সবুজ + `flutter analyze` পরিষ্কার।
 
-### Phase 3 — UX উন্নতি — ✅ 3A + 3B সম্পন্ন (2026-09-14), 3.5 ঐচ্ছিক বাকি
-
-**3A — Review System** ✅ সম্পন্ন: Capture → Preview Screen (full image, zoom) →
-[আবার তুলুন] [মুছুন] [পরের >] — ভুল ছবি সাথে সাথে ঠিক করা যায়; Delete = ফাইল +
-রেকর্ড রিসেট করে একই শিক্ষার্থীর ক্যামেরায় ফেরত। লিস্টে thumbnail + full-screen
-viewer-এও retake/delete আছে।
-
-**3B — Camera Pro Controls** ✅ সম্পন্ন: Flash/Torch toggle, Front/Back switch,
-3×3 Passport Grid Overlay (toggle বাটনসহ, `_GridPainter`), Pinch-to-Zoom
-(init-এ `getMin/MaxZoomLevel` ক্যাশ → `setZoomLevel`, zoom indicator,
-ডাবল-ট্যাপে zoom reset; zoom সাপোর্ট না থাকলে silently disable)।
-
-> নতুন ফাইল: `lib/models/forik_stat.dart`, `lib/screens/review_screen.dart`,
-> `lib/screens/image_viewer_screen.dart`। DB-তে `clearImage` + `getForikStats`
-> (টেস্টে কভারড)। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
-
-### Phase 3C — কাস্টমাইজ + ফিল্টার + স্টোরেজ — ✅ সম্পন্ন (2026-09-14)
-
-- **কাস্টম ইমপোর্ট (JSON):** Settings screen (⚙️ AppBar-এ) — file_picker দিয়ে ডিভাইস
-  থেকে JSON বাছাই → isolate-এ পার্স → transaction-এ পুরনো ডেটা রিপ্লেস; একই দাখিলার
-  তোলা ছবির স্ট্যাটাস প্রিজার্ভ হয়। "ডাটা রিসেট" = সব মুছে বান্ডেল ডেটা পুনরায় লোড।
-  (নতুন dep: file_picker 12.x — static `FilePicker.pickFiles()` API)
-- **ক্লাস > ফরিক + All:** DB-তে `getDistinctClasses()` + `getForiksForClass()` —
-  ক্লাস বাছলে ফরিক লিস্ট dynamic; সার্চ ও progress chips-ও ক্লাস মেনে চলে।
-  "All" = ক্লাস+ফরিক দুটোই রিসেট। (hardcoded ১–১২ dropdown বাদ)
-- **আউটপুট ফোল্ডার ওপেন:** Settings-এ সেভ পাথ দেখানো + [ফোল্ডার খুলুন] (DocumentsUI
-  intent — android_intent_plus; ব্যর্থ হলে অটো পাথ-কপি) + [পাথ কপি] বাটন।
-
-> নতুন টেস্ট: replaceAllStudents-এ ক্যাপচার প্রিজার্ভ, ক্লাস/ফরিক লিস্ট,
-> রিসেট→বান্ডেল ডেটা পুনরুদ্ধার। `flutter analyze` → 0 issues, `flutter test` → 9/9 পাস।
+### Phase 3 — UX উন্নতি (≈ ১–২ দিন)
 | # | কাজ |
 |---|---|
 | 3.1 | লিস্টে তোলা ছবির thumbnail (Image.file) + full-screen viewer + delete |
 | 3.2 | Serial mode: সেভের পর ছোট preview + **Next / Retake** বাটন (অথবা "review-then-advance" টগল) |
 | 3.3 | Front/back ক্যামেরা switch + torch toggle |
-| 3.4 | ফরিক-ভিত্তিক প্রগ্রেস (যেমন "ফরিক ৩: 40/120") |
+| 3.4 | ক্লাস> ফরিক-ভিত্তিক প্রগ্রেস (যেমন "ফরিক ৩: 40/120") |
 | 3.5 | (ঐচ্ছিক) share_plus দিয়ে ছবি/ফোল্ডার share, বা MediaStore-এ Pictures/DakhilaCamera-তে কপি |
 
-### Phase 4 — রিলিজ প্রস্তুতি (≈ আধা দিন) — 🔶 আংশিক: v1.1.0+2 APK তৈরি (2026-09-14)
-
-> **সম্পন্ন:** `flutter build apk --release` → `build/app/outputs/flutter-apk/app-release.apk`
-> (53 MB) — প্রোজেক্ট রুটে কপি: `DakhilaCamera-v1.1.0-release.apk`। ভার্সন বাম্প
-> 1.0.0+1 → **1.1.0+2**। বিল্ড ফিক্স: Windows-এ Kotlin incremental cache lock error →
-> `android/gradle.properties`-এ `kotlin.incremental=false`।
-> **বাকি:** applicationId rename (`com.example...` এখনও), release keystore/signing
-> (এই APK debug key-এ signed — শুধু টেস্ট/সরাসরি ইনস্টলের জন্য; Play Store-এর জন্য নয়),
-> app icon, README আপডেট।
+### Phase 4 — রিলিজ প্রস্তুতি (≈ আধা দিন)
 | # | কাজ |
 |---|---|
 | 4.1 | applicationId rename (যেমন `com.madrasa.dakhila_camera`) + app icon |
@@ -171,46 +124,3 @@ Phase 1 (বাগ) → git commit → Phase 2 (রিফ্যাক্টর+�
 ```
 
 প্রতিটি phase শেষে: `flutter analyze` + `flutter test` + ডিভাইসে ম্যানুয়াল ফ্লো টেস্ট।
-
----
-
-## ৬. Phase 5 — ভবিষ্যৎ ব্যাকলগ (ফিচার আপগ্রেড পরিকল্পনা)
-
-### 5A — Quick wins (প্রতিটি অর্ধ-দিনের কাজ)
-| আইডিয়া | নোট |
-|---|---|
-| Excel/CSV ইমপোর্ট | `excel` প্যাকেজ; কলাম হেডার JSON key-এর মতো (DAKHILA, STU_NAME...) |
-| ~~ছবি গ্যালারিতেও সেভ~~ ✅ সম্পন্ন (2026-09-14) | MediaStore via MethodChannel (`MainActivity.kt`) → `Pictures/DakhilaCamera`; retake-এ replace, delete-এ গ্যালারি কপিও মুছে; নতুন `lib/utils/gallery_saver.dart`; Android 10+ permission-মুক্ত |
-| ডার্ক মোড | `ThemeMode` টগল; ক্যামেরা স্ক্রিন এমনিতেই ডার্ক |
-| ক্যাপচার ফিডব্যাক | শাটার সাউন্ড/ভাইব্রেশন + সেভে ছোট success অ্যানিমেশন |
-| Undo delete | মোছা ফাইল টেম্পে রেখে স্ন্যাকবার-এ "পুনরুদ্ধার" (৫ সেকেন্ড) |
-| সেটিংস মনে রাখা | passport/serial/grid মোড `shared_preferences`-এ সংরক্ষণ |
-| সার্চে ফরিক/ক্লাস হাইলাইট | ম্যাচিং অংশ bold/হাইলাইট |
-
-### 5B — মাঝারি (প্রতিটি ১–৩ দিন)
-| আইডিয়া | নোট |
-|---|---|
-| **PDF প্রিন্ট শিট** | `pdf` + `printing` প্যাকেজ — প্রতি পাতায় ৮/১০টি পাসপোর্ট ছবি + দাখিলা/নাম ক্যাপশন; ফর্ম প্রিন্টের জন্য খুব কাজের |
-| ZIP export + রিপোর্ট | `archive` প্যাকেজ — ক্লাস/ফরিক ফোল্ডার-কাঠামোসহ zip + missing-ছবির CSV |
-| মারহালা/বছর সাপোর্ট | schema v3: `marhala`, `exam_year` কলাম; multi-year dropdown; পুরনো DB migrate |
-| গ্যালারি গ্রিড ভিউ | শুধু তোলা ছবির `GridView` — দ্রুত যাচাই |
-| ডেটা এক্সপোর্ট | ক্যাপচার স্ট্যাটাস CSV (কে তোলা/বাকি) — Excel-এ খোলা যায় |
-| integration_test | এমুলেটরে end-to-end ফ্লো (ইমপোর্ট→ক্যাপচার→রিভিউ→ডিলিট) |
-| CI (GitHub Actions) | push-এ analyze + test + APK artifact অটো-বিল্ড |
-| ছবি কম্প্রেশন অপশন | quality/সাইজ সেটিংস (স্টোরেজ বাঁচাতে) |
-
-### 5C — দূরবর্তী / বড় কাজ
-| আইডিয়া | নোট |
-|---|---|
-| camera 0.11+ upgrade | `CameraValue`-তে zoom ফিল্ড + নতুন API; breaking change যাচাই করে |
-| মুখ-শনাক্ত auto-crop assist | `google_mlkit_face_detection` — মুখ সেন্টারে এনে গাইড/অটো-ক্রপ |
-| ক্লাউড ব্যাকআপ | Google Drive/নিজস্ব সার্ভারে DB+ছবি ব্যাকআপ (ঐচ্ছিক, privacy সতর্কতা) |
-| ট্যাবলেট/ডেস্কটপ লেআউট | বড় স্ক্রিনে two-pane (লিস্ট + ক্যামেরা) |
-| **Play Store রিলিজ** | keystore + signing config, applicationId rename, app icon, screenshots, privacy policy |
-| বহু-প্রতিষ্ঠান সাপোর্ট | ডেটা প্রোফাইল স্যুইচ (একাধিক প্রতিষ্ঠানের ডেটা আলাদা করে) |
-
-### সাজেশনকৃত ক্রম
-```
-Phase 4 শেষ (keystore + applicationId + icon) → 5A (quick wins) → 5B (প্রয়োজন অনুযায়ী)
-→ 5C (দূরবর্তী) ; PDF শিট ও গ্যালারি-সেভ অফিস ব্যবহারে সবচেয়ে বেশি কাজে আসবে
-```

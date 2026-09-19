@@ -8,16 +8,14 @@ echo   Dakhila Camera - নতুন Release APK তৈরি
 echo ===============================================
 echo.
 
-set /p BUILD_NUMBER="নতুন Android build number লিখুন (যেমন 17): "
+set BUILD_NUMBER=
+echo [1/4] pubspec.yaml থেকে build number স্বয়ংক্রিয়ভাবে বাড়ানো হচ্ছে...
+for /f "usebackq delims=" %%N in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0increment_build_number.ps1"`) do set BUILD_NUMBER=%%N
 if "%BUILD_NUMBER%"=="" (
-  echo ERROR: Update APK-এর জন্য build number আবশ্যক।
+  echo ERROR: build number পাওয়া যায়নি। pubspec.yaml-এ 'version: x.y.z+N' আছে কিনা দেখুন।
   goto :failed
 )
-echo %BUILD_NUMBER%| findstr /r "^[0-9][0-9]*$" >nul
-if errorlevel 1 (
-  echo ERROR: build number শুধু সংখ্যা হতে হবে।
-  goto :failed
-)
+echo ব্যবহৃত build number: %BUILD_NUMBER%
 if not exist "android\key.properties" (
   echo ERROR: Release keystore পাওয়া যায়নি। আগে create_release_keystore.bat চালান।
   goto :failed
@@ -29,17 +27,17 @@ if errorlevel 1 (
   goto :failed
 )
 
-echo [1/3] পুরনো build files পরিষ্কার করা হচ্ছে...
+echo [2/4] পুরনো build files পরিষ্কার করা হচ্ছে...
 call flutter clean
 if errorlevel 1 goto :failed
 
 echo.
-echo [2/3] Dependencies আপডেট করা হচ্ছে...
+echo [3/4] Dependencies আপডেট করা হচ্ছে...
 call flutter pub get
 if errorlevel 1 goto :failed
 
 echo.
-echo [3/3] Release APK তৈরি করা হচ্ছে...
+echo [4/4] Release APK তৈরি করা হচ্ছে...
 call flutter build apk --release --split-per-abi --build-number=%BUILD_NUMBER%
 if errorlevel 1 goto :failed
 

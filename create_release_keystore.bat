@@ -18,8 +18,8 @@ echo.
 echo এই keystore-ই ভবিষ্যতের সব APK update-এর পরিচয়।
 echo এটিকে ও password নিরাপদে backup করুন; হারালে পুরোনো APK update করা যাবে না।
 echo.
-set /p KEY_ALIAS="Key alias (default dakhila_camera): "
-if "%KEY_ALIAS%"=="" set KEY_ALIAS=dakhila_camera
+set /p KEY_ALIAS="Key alias (default upload): "
+if "%KEY_ALIAS%"=="" set KEY_ALIAS=upload
 set /p STORE_PASSWORD="Keystore password লিখুন: "
 if "%STORE_PASSWORD%"=="" (
   echo ERROR: password খালি রাখা যাবে না।
@@ -30,7 +30,8 @@ if "%KEY_PASSWORD%"=="" set KEY_PASSWORD=%STORE_PASSWORD%
 
 echo.
 echo Keystore তৈরি হচ্ছে...
-keytool -genkeypair -v -keystore "android\app\upload-keystore.jks" -alias "%KEY_ALIAS%" -keyalg RSA -keysize 2048 -validity 10000 -storepass "%STORE_PASSWORD%" -keypass "%KEY_PASSWORD%" -dname "CN=Dakhila Camera, OU=Android, O=Dakhila Camera, C=BD"
+if not exist "android\key" mkdir "android\key"
+keytool -genkeypair -v -keystore "android\key\upload-keystore.jks" -alias "%KEY_ALIAS%" -keyalg RSA -keysize 2048 -validity 10000 -storepass "%STORE_PASSWORD%" -keypass "%KEY_PASSWORD%" -dname "CN=Dakhila Camera, OU=DakhilaCamera, O=Madrasa, L=Dhaka, ST=Dhaka, C=BD"
 if errorlevel 1 (
   echo ERROR: Keystore তৈরি হয়নি।
   goto :end
@@ -40,7 +41,7 @@ if errorlevel 1 (
   echo storePassword=%STORE_PASSWORD%
   echo keyPassword=%KEY_PASSWORD%
   echo keyAlias=%KEY_ALIAS%
-  echo storeFile=upload-keystore.jks
+  echo storeFile=../key/upload-keystore.jks
 ) > "android\key.properties"
 
 echo.

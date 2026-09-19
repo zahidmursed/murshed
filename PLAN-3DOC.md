@@ -193,7 +193,8 @@ Dakhila_Forik1_2025-09-14.zip
 
 - [x] applicationId `com.madrasa.dakhilacamera` + icon (আগেই হয়ে গিয়েছিল)
 - [x] Keystore (`android/key/upload-keystore.jks`) + key.properties + signingConfig
-      + shrinkResources ✅ — **password: DakhilaCam@2026 (নিরাপদে ব্যাকআপ করুন!)**
+      + shrinkResources ✅ — **পাসওয়ার্ড কোনো ফাইল/ডকে লিখবেন না; পাসওয়ার্ড-ম্যানেজারে
+      বা এনভায়রনমেন্ট-সিক্রেটে রাখুন (KEYSTORE_PASSWORD)**
 - [x] `flutter build apk --release` (signed, split-per-abi: arm64 20.3MB / armv7 18.2MB) + `appbundle` (AAB 55.6MB)
 - [x] Signature verify ✅ (apksigner: V2 Signer, CN=Dakhila Camera)
 - [ ] Integration test: import Excel → capture 3 docs → ZIP → verify (⏳ পরের ইটারেশন)

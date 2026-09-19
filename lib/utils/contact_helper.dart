@@ -19,6 +19,18 @@ class ContactHelper {
     return digits;
   }
 
+  /// মোবাইলকে স্থানীয় 11-ডিজিট ফরম্যাটে (01XXXXXXXXX) আনে:
+  /// স্পেস/ড্যাশ বাদ, "+880/880"-কে 0-তে, ১০ ডিজিট (1 দিয়ে শুরু)-এ আগে 0।
+  /// অসম্পূর্ণ মান হলে যা আছে তা-ই ফেরত দেয় (যাচাই কলারের দায়িত্ব)।
+  static String normalizeLocalMobile(String raw) {
+    var digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.startsWith('880') && digits.length >= 12) {
+      digits = '0${digits.substring(3)}';
+    }
+    if (digits.length == 10 && digits.startsWith('1')) return '0$digits';
+    return digits;
+  }
+
   /// সিস্টেম ডায়ালারে নম্বর প্রি-ফিল করে। false = ডায়ালার খোলা যায়নি।
   static Future<bool> openDialer(String number) async {
     try {

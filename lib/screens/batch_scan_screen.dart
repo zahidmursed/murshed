@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/document.dart';
+import '../models/student.dart';
 import '../providers/student_provider.dart';
 import 'document_scanner_screen.dart';
 
@@ -75,20 +76,7 @@ class _BatchScanScreenState extends State<BatchScanScreen> {
                                 ? const Icon(Icons.check_circle,
                                     color: Colors.green)
                                 : const Icon(Icons.chevron_right),
-                            onTap: () async {
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => DocumentScannerScreen(
-                                        student: s, type: widget.type)),
-                              );
-                              if (!mounted) return;
-                              if (provider.docOf(s.dakhila, widget.type) !=
-                                  null) {
-                                setState(
-                                    () => _scannedThisSession.add(s.dakhila));
-                              }
-                            },
+                            onTap: () => _runBatch(context, provider, s),
                           );
                         },
                       ),
@@ -98,5 +86,34 @@ class _BatchScanScreenState extends State<BatchScanScreen> {
         },
       ),
     );
+  }
+
+  /// ব্যাচ চক্র: স্ক্যান → সেভ → স্বয়ংক্রিয়ভাবে পরের "বাকি" ছাত্রের
+  /// স্ক্যান-স্ক্রিন। ইউজার ব্যাক করলে (result != true) চক্র থামে —
+  /// ফাঁদে আটকায় না; স্কোপ শেষ হলে উদযাপন-বার্তা।
+  Future<void> _runBatch(
+      BuildContext context, StudentProvider provider, Student first) async {
+    final nav = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    Student? current = first;
+    while (current != null) {
+      final s = current;
+      final saved = await nav.push(MaterialPageRoute(
+          builder: (_) => DocumentScannerScreen(student: s, type: widget.type)));
+      if (!mounted) return;
+      if (saved != true) break; // ব্যাক/বাতিল — ইউজার বেরিয়ে যেতে চায়
+      if (provider.docOf(s.dakhila, widget.type) == null) break; // সেভ হয়নি
+      setState(() => _scannedThisSession.add(s.dakhila));
+
+      final pending = provider.students
+          .where((st) => provider.docOf(st.dakhila, widget.type) == null)
+          .toList();
+      if (pending.isEmpty) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('🎉 এই স্কোপে সব ডকুমেন্ট সম্পন্ন!')));
+        break;
+      }
+      current = pending.first; // তালিকার ক্রমেই পরের "বাকি"
+    }
   }
 }

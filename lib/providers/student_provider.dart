@@ -15,6 +15,7 @@ import '../services/storage_service.dart';
 import '../utils/excel_parser.dart';
 import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
+import '../utils/name_transliterator.dart';
 
 class StudentProvider extends ChangeNotifier {
   StudentProvider({SharedPreferences? prefs}) : _prefs = prefs {
@@ -103,6 +104,321 @@ class StudentProvider extends ChangeNotifier {
         docs: {for (final t in DocType.values) t: _docs[s.dakhila]?[t]},
       );
 
+  /// দাখিলা দিয়ে হালনাগাদ ছাত্র — মাস্টার তালিকা আগে, তারপর ফিল্টারড।
+  /// সম্পাদনার পরে রিপোর্ট ফরম এটা দিয়ে সদ্য-সংরক্ষিত মান দেখায়।
+  Student? findStudent(String dakhila) {
+    for (final list in [_students, _filtered]) {
+      final i = list.indexWhere((s) => s.dakhila == dakhila);
+      if (i != -1) return list[i];
+    }
+    return null;
+  }
+
+  /// স্তর ১ সম্পাদনা: নিরাপদ ফিল্ড (নাম/পিতা/মোবাইল/ঠিকানা/নম্বর/বছর) সংরক্ষণ।
+  /// DB + ইন-মেমোরি তালিকা দুটোই আপডেট হয়; true = সফল।
+  Future<bool> editStudentInfo(Student updated) async {
+    try {
+      await DatabaseHelper.instance
+          .updateStudentInfo(updated.dakhila, updated.toMap());
+      for (final list in [_students, _filtered]) {
+        final i = list.indexWhere((s) => s.dakhila == updated.dakhila);
+        if (i != -1) list[i] = updated;
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('editStudentInfo failed: $e');
+      return false;
+    }
+  }
+
+  /// স্তর ২ সম্পাদনা: ক্লাস/ফরিক/লেভেলসহ সম্পূর্ণ ফিল্ড।
+  /// ক্লাস/ফরিক বদলালে ছাত্রের সব ডকুমেন্ট-ফাইল নতুন v2 ফোল্ডারে
+  /// সরিয়ে (copy → verify → delete old), তারপর এক ট্রানজেকশনে
+  /// students + documents পাথ আপডেট; শেষে খালি পুরনো ফোল্ডার পরিষ্কার।
+  /// রিটার্ন: (ok, moved = সফলভাবে সরানো ফাইল, failed = সরানো যায়নি)।
+  Future<({bool ok, int moved, int failed})> editStudentIdentity(
+      Student updated) async {
+    try {
+      final old =
+          await DatabaseHelper.instance.getStudentByDakhila(updated.dakhila);
+      if (old == null) return (ok: false, moved: 0, failed: 0);
+      final identityChanged =
+          old.className != updated.className || old.forikNo != updated.forikNo;
+      if (!identityChanged) {
+        final ok = await editStudentInfo(updated);
+        return (ok: ok, moved: 0, failed: 0);
+      }
+
+      // ১) ফাইলগুলো নতুন ফোল্ডারে সরাও (DB-র আগে — ব্যর্থ হলে পুরনো পাথই থাকবে)
+      final docs =
+          await DatabaseHelper.instance.getStudentDocuments(updated.dakhila);
+      final docIdToNewPath = <int, String>{};
+      var moved = 0;
+      var failed = 0;
+      String? photoNewPath;
+      for (final doc in docs) {
+        final newPath = await StorageService.moveDocFile(
+          oldPath: doc.filePath,
+          className: updated.className,
+          forik: updated.forikNo,
+          dakhila: doc.dakhila,
+          type: doc.type,
+          ext: doc.ext,
+        );
+        if (newPath == null) {
+          failed++;
+          continue;
+        }
+        docIdToNewPath[doc.id!] = newPath;
+        moved++;
+        // legacy students.image_path সাধারণত PHOTO doc-এর পাথের সমান
+        if (doc.type == DocType.PHOTO &&
+            (old.imagePath ?? '').isNotEmpty &&
+            doc.filePath == old.imagePath) {
+          photoNewPath = newPath;
+        }
+      }
+      // PHOTO doc আলাদা না থাকলেও legacy image_path থাকতে পারে
+      String? newImagePath = photoNewPath;
+      if (newImagePath == null && (old.imagePath ?? '').isNotEmpty) {
+        final ext = old.imagePath!.contains('.')
+            ? old.imagePath!.split('.').last.toLowerCase()
+            : 'jpg';
+        final movedPath = await StorageService.moveDocFile(
+          oldPath: old.imagePath!,
+          className: updated.className,
+          forik: updated.forikNo,
+          dakhila: updated.dakhila,
+          type: DocType.PHOTO,
+          ext: ext,
+        );
+        if (movedPath == null) {
+          failed++;
+        } else {
+          newImagePath = movedPath;
+          moved++;
+        }
+      }
+
+      // ২) DB-তে লেখা — সব সম্পাদনাযোগ্য ফিল্ড `updated` থেকে, বাকি DB-মালিকানার
+      // কলাম FRESH `old` রো থেকে (copyWith)। বাগ ফিক্স: আগে এখানে হাতে বানানো
+      // একটি ছোট Student বসানো হতো — mother_name, birth_date, birth_certificate_no,
+      // avg_num_*, address_*, *_en/*_ar (মোট ২০টি কলাম) ডিফল্ট খালি মানে নীরবে
+      // মুছে যেত, অথচ UI "তথ্য সংরক্ষিত" দেখাত।
+      final toSave = old.copyWith(
+        stuName: updated.stuName,
+        fatherName: updated.fatherName,
+        guardianMobile: updated.guardianMobile,
+        dakhilaYear: updated.dakhilaYear,
+        marhala: updated.marhala,
+        examYear: updated.examYear,
+        avgMonth: updated.avgMonth,
+        avg1st: updated.avg1st,
+        avg2nd: updated.avg2nd,
+        avgFinal: updated.avgFinal,
+        addressVill: updated.addressVill,
+        addressPo: updated.addressPo,
+        addressPs: updated.addressPs,
+        addressDist: updated.addressDist,
+        className: updated.className,
+        forikNo: updated.forikNo,
+        classLevel: updated.classLevel,
+        motherName: updated.motherName,
+        birthDate: updated.birthDate,
+        birthCertNo: updated.birthCertNo,
+        stuNameEn: updated.stuNameEn,
+        stuNameAr: updated.stuNameAr,
+        fatherNameEn: updated.fatherNameEn,
+        fatherNameAr: updated.fatherNameAr,
+        motherNameEn: updated.motherNameEn,
+        motherNameAr: updated.motherNameAr,
+      )
+        ..imagePath = newImagePath ?? old.imagePath
+        ..isCaptured = old.isCaptured
+        ..totalDocs = old.totalDocs;
+      final dbOk = await DatabaseHelper.instance.applyStudentMove(
+        updated: toSave,
+        docIdToNewPath: docIdToNewPath,
+        newImagePath: newImagePath,
+      );
+      if (!dbOk) return (ok: false, moved: moved, failed: failed);
+
+      // ৩) পুরনো খালি ফোল্ডার best-effort পরিষ্কার
+      await StorageService.cleanupEmptyFolders(
+          old.className, old.forikNo, updated.dakhila);
+
+      // ৪) তালিকা/ক্লাস-ফরিক dropdown/স্ট্যাট রিফ্রেশ
+      await load();
+      return (ok: true, moved: moved, failed: failed);
+    } catch (e) {
+      debugPrint('editStudentIdentity failed: $e');
+      return (ok: false, moved: 0, failed: 0);
+    }
+  }
+
+  /// সেলফ-হিল (দুই-মুখী, repair-only): photo ফাইল আছে কিন্তু রেকর্ড ফাঁকা —
+  /// যেমন `is_captured=0`/`image_path` null তবু PHOTO ডকুমেন্ট বা v2 ফাইল আছে
+  /// (রিস্টোর/পুরনো-পাথ/ডিবি-অসঙ্গতি থেকে), বা উল্টো — `image_path` বদলে গেছে।
+  /// ফাইল কোথাও না পেলে **কিছুই মোছা হয় না** — storage হঠাৎ unavailable হলে
+  /// (পারমিশন/ফোন-বদল) ডেটা হারানোর ঝুঁকি এড়াতে heal শুধু মেরামত করে।
+  Future<void> _healPhotoPaths() async {
+    final fixed = <String, String>{};
+    for (final s in _students) {
+      final photoDoc = _docs[s.dakhila]?[DocType.PHOTO];
+      // এই ছাত্রের কোনো photo আলামতই নেই — দ্রুত বাদ
+      if (photoDoc == null && s.isCaptured != 1) continue;
+      // documents টেবিলই v2-এর মূল সত্য — সেই পাথ আগে, তারপর legacy image_path
+      String? found;
+      for (final c in [photoDoc?.filePath, s.imagePath]) {
+        if (c == null || c.isEmpty) continue;
+        if (File(c).existsSync()) {
+          found = c;
+          break;
+        }
+      }
+      // কোথাও না পেলে প্রত্যাশিত v2 পাথে খুঁজি (কোনো ফাইল তৈরি হয় না)
+      if (found == null) {
+        try {
+          final expected = await StorageService.peekDocumentPath(
+              s.className, s.forikNo, s.dakhila, DocType.PHOTO, 'jpg');
+          if (File(expected).existsSync()) found = expected;
+        } catch (_) {}
+      }
+      if (found == null) continue;
+      final mismatch = s.isCaptured != 1 ||
+          (s.imagePath ?? '') != found ||
+          photoDoc == null ||
+          photoDoc.filePath != found;
+      if (mismatch) fixed[s.dakhila] = found;
+    }
+    if (fixed.isEmpty) return;
+    for (final entry in fixed.entries) {
+      try {
+        await DatabaseHelper.instance.updateImage(entry.key, entry.value);
+        final ext = p.extension(entry.value).replaceFirst('.', '').toLowerCase();
+        final safeExt = ext.isEmpty ? 'jpg' : ext;
+        _docs.putIfAbsent(entry.key, () => {})[DocType.PHOTO] = StudentDocument(
+          dakhila: entry.key,
+          type: DocType.PHOTO,
+          filePath: entry.value,
+          ext: safeExt,
+          mimeType: StudentDocument.mimeTypeForExt(safeExt),
+          status: 1,
+          updatedAt: DateTime.now().toIso8601String(),
+        );
+      } catch (e) {
+        debugPrint('Heal DB update failed (${entry.key}): $e');
+      }
+    }
+    for (final list in [_students, _filtered]) {
+      for (final s in list) {
+        final p2 = fixed[s.dakhila];
+        if (p2 != null) {
+          s.imagePath = p2;
+          s.isCaptured = 1;
+          s.totalDocs = _docs[s.dakhila]?.length ?? s.totalDocs;
+        }
+      }
+    }
+    debugPrint('Healed ${fixed.length} photo record(s)');
+  }
+
+  /// Excel রাউন্ড-ট্রিপ: এক্সপোর্ট করা xlsx-এর অ-খালি সেল (নাম En/Ar,
+  /// নম্বর, জন্ম-তথ্য…) দিয়ে ছাত্র-তথ্য আপডেট; খালি সেল অ্যাপ-মান নষ্ট করে না।
+  /// রিটার্ন: (matched = ফাইলের রো-সংখ্যা, applied = সত্যিই আপডেট হওয়া ছাত্র)।
+  Future<({int matched, int applied})> importStudentUpdatesFromXlsx(
+      String path) async {
+    final bytes = await File(path).readAsBytes();
+    final updates = await Isolate.run(
+        () => ExcelParser.parseUpdateFromBytes(bytes));
+    final applied =
+        await DatabaseHelper.instance.bulkApplyStudentUpdates(updates);
+    await load(); // মেমোরি রিফ্রেশ — লিস্ট/রিপোর্টে সাথে সাথে দেখা যায়
+    return (matched: updates.length, applied: applied);
+  }
+
+  /// ব্যাচ নাম-অটো-ফিল: ফিল্টার-স্কোপের ছাত্রদের মধ্যে যাদের ইংরেজি/আরবী
+  /// নাম খালি, সবার জন্য ক্যাশ → ডিকশনারি/নিয়ম চালিয়ে ভরা। বিদ্যমান মান
+  /// ওভাররাইট করে না — শুধু **ভাঙা** মান (En/Ar-এ বাংলা অক্ষর ফাঁস) পুরনো
+  /// ইঞ্জিনের অবশিষ্ট্য হিসেবে ধরা হয়ে নতুন করে পূরণ হয় (repaired)।
+  /// ডিকশনারি-মিল টোকেন (অনুমিত নয়) ক্যাশেও সেভ হয়।
+  /// [onProgress](done, total)।
+  Future<({int filled, int cacheHits, int unknownTokens, int repaired})>
+      batchAutoFillNames({
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final targets = <Student>[];
+    final repair = <String>{};
+    for (final s in _filtered) {
+      if (s.stuName.trim().isEmpty) continue;
+      final broken = (s.stuNameEn.isNotEmpty &&
+              NameTransliterator.containsBengali(s.stuNameEn)) ||
+          (s.stuNameAr.isNotEmpty &&
+              NameTransliterator.containsBengali(s.stuNameAr));
+      if (broken) {
+        // পুরনো/ভাঙা ইঞ্জিনের আউটপুট — নতুন করে পূরণ হবে
+        repair.add(s.dakhila);
+        targets.add(s);
+      } else if (s.stuNameEn.isNotEmpty && s.stuNameAr.isNotEmpty) {
+        continue;
+      } else {
+        targets.add(s);
+      }
+    }
+    final total = targets.length;
+    final updates = <({String dakhila, String en, String ar})>[];
+    final cacheRows = <({String key, String en, String ar})>[];
+    var cacheHits = 0;
+    var unknownTokens = 0;
+    var done = 0;
+    for (final s in targets) {
+      final key = NameTransliterator.cacheKey(s.stuName);
+      var en = (repair.contains(s.dakhila)) ? '' : s.stuNameEn;
+      var ar = (repair.contains(s.dakhila)) ? '' : s.stuNameAr;
+      final cached = await DatabaseHelper.instance.lookupNameCache(key);
+      if (cached != null &&
+          !NameTransliterator.containsBengali(cached.english) &&
+          !NameTransliterator.containsBengali(cached.arabic)) {
+        cacheHits++;
+        if (en.isEmpty) en = cached.english;
+        if (ar.isEmpty) ar = cached.arabic;
+      } else {
+        final r = NameTransliterator.transliterate(s.stuName);
+        if (en.isEmpty) en = r.english;
+        if (ar.isEmpty) ar = r.arabic;
+        unknownTokens += r.unknown;
+        // ক্যাশ-শেডিং শুধু ডিকশনারি-মিলে — অনুমিত বানান ক্যাশে যায় না
+        if (r.allKnown) {
+          cacheRows.add((key: key, en: en, ar: ar));
+        }
+      }
+      updates.add((dakhila: s.dakhila, en: en, ar: ar));
+      done++;
+      onProgress?.call(done, total);
+    }
+    if (updates.isNotEmpty) {
+      await DatabaseHelper.instance
+          .bulkSaveNameFields(updates, cacheRows);
+      // ইন-মেমোরি তালিকা হালনাগাদ (Student ক্ষেত্র final — কপি বসানো হয়)
+      for (final u in updates) {
+        for (final list in [_students, _filtered]) {
+          final i = list.indexWhere((s) => s.dakhila == u.dakhila);
+          if (i != -1) {
+            list[i] = list[i].copyWith(stuNameEn: u.en, stuNameAr: u.ar);
+          }
+        }
+      }
+      notifyListeners();
+    }
+    return (
+      filled: updates.length,
+      cacheHits: cacheHits,
+      unknownTokens: unknownTokens,
+      repaired: repair.length,
+    );
+  }
+
   Future<void>? _loadQueue;
 
   /// reentrancy guard: চলমান load থাকলে সেটার পরে নতুনটা চলে — দ্রুত
@@ -135,7 +451,11 @@ class StudentProvider extends ChangeNotifier {
       forikFilter: selectedForik.isEmpty ? null : selectedForik,
       classFilter: classFilter,
     );
+    // ফিক্স: heal-এর আগে ডকুমেন্ট-ম্যাপ লোড — PHOTO স্লটই photo-state-এর
+    // মূল সত্য; নইলে ডক আছে কিন্তু is_captured=0 এমন রেকর্ড মেরামত হতো না
+    // (হেডারের তোলা/বাকি, ফরিক chip ও ZIP export ভুল দেখাত)।
     _docs = await DatabaseHelper.instance.getAllDocumentsMap();
+    await _healPhotoPaths();
     _forikStats = await DatabaseHelper.instance.getForikStats(
       classFilter: classFilter,
     );
@@ -285,8 +605,7 @@ class StudentProvider extends ChangeNotifier {
   /// ক্যামেরা/ডিস্ক থেকে সরাসরি ডকুমেন্ট সেভ (ফাইল আগেই সঠিক পাথে থাকলে)।
   Future<void> markDocumentSaved(
       String dakhila, DocType type, String path) async {
-    final ext =
-        path.contains('.') ? path.split('.').last.toLowerCase() : 'jpg';
+    final ext = path.contains('.') ? path.split('.').last.toLowerCase() : 'jpg';
     final doc = StudentDocument(
       dakhila: dakhila,
       type: type,
@@ -778,8 +1097,8 @@ class StudentProvider extends ChangeNotifier {
       return (assigned: 0, skipped: 0, total: 0, cancelled: false);
     }
 
-    final stageDir = Directory(
-        '${(await getTemporaryDirectory()).path}/folder_import');
+    final stageDir =
+        Directory('${(await getTemporaryDirectory()).path}/folder_import');
     final files = <File>[];
     await for (final e in stageDir.list(recursive: true)) {
       if (e is File) files.add(e);

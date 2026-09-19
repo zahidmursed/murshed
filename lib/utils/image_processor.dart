@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -250,98 +251,285 @@ Future<Uint8List?> mergePagesVerticallyInIsolate(List<Uint8List> pages) {
   });
 }
 
-int _otsuThreshold(img.Image image) {
-  final hist = List<int>.filled(256, 0);
-  for (final p in image) {
-    hist[p.luminance.round().clamp(0, 255)]++;
-  }
-  final total = image.width * image.height;
+/// হিস্টোগ্রাম থেকে Otsu থ্রেশহোল্ড। প্লাটো (two-tone ছবিতে বিস্তৃত সমান
+/// between-class) ক্ষেত্রে প্রথম মানে না আটকে প্লাটোর মাঝখান নেয় — নইলে
+/// থ্রেশহোল্ড গাঢ় শিখরেই পড়ে গিয়ে হালকা ছায়াও কালো হয়ে যায়।
+int _otsuFromHist(Int32List hist, int total) {
   var sum = 0;
+  var cw = 0;
+  var cs = 0;
+  final cumW = Int64List(256);
+  final cumS = Int64List(256);
   for (var i = 0; i < 256; i++) {
     sum += i * hist[i];
+    cw += hist[i];
+    cs += i * hist[i];
+    cumW[i] = cw;
+    cumS[i] = cs;
   }
-  var sumB = 0;
-  var wB = 0;
-  var best = 0.0;
-  var threshold = 128;
+  double betweenAt(int t) {
+    final double wB = cumW[t].toDouble();
+    if (wB <= 0 || wB >= total) return -1;
+    final double wF = (total - wB).toDouble();
+    final double mB = cumS[t] / wB;
+    final double mF = (sum - cumS[t]) / wF;
+    return wB * wF * (mB - mF) * (mB - mF);
+  }
+
+  var best = -1.0;
+  var bestT = 128;
   for (var t = 0; t < 256; t++) {
-    wB += hist[t];
-    if (wB == 0) continue;
-    final wF = total - wB;
-    if (wF == 0) break;
-    sumB += t * hist[t];
-    final mB = sumB / wB;
-    final mF = (sum - sumB) / wF;
-    final between = wB * wF * (mB - mF) * (mB - mF);
-    if (between > best) {
-      best = between;
-      threshold = t;
+    final b = betweenAt(t);
+    if (b > best) {
+      best = b;
+      bestT = t;
     }
   }
-  return threshold;
+  if (best <= 0) return bestT;
+  // প্লাটো: best-এর ≥৯৯.৫% মানের বিস্তারের মাঝখান
+  final double limit = best * 0.995;
+  var lo = bestT, hi = bestT;
+  for (var t = bestT - 1; t >= 0 && betweenAt(t) >= limit; t--) {
+    lo = t;
+  }
+  for (var t = bestT + 1; t < 256 && betweenAt(t) >= limit; t++) {
+    hi = t;
+  }
+  return (lo + hi) ~/ 2;
 }
 
-/// লুমিন্যান্স > threshold → সাদা, বাকি → কালো (ফটোকপি স্টাইল)।
-/// strict '>' — নইলে two-tone ছবিতে Otsu-প্লাটোর ক্ষেত্রে অন্ধকার অংশও সাদা হয়।
-img.Image _applyThreshold(img.Image image, int threshold) {
-  for (final p in image) {
-    final lum = p.luminance.round().clamp(0, 255);
-    final v = lum > threshold ? 255 : 0;
-    p.r = v;
-    p.g = v;
-    p.b = v;
+/// CamScanner-স্টাইল magic ফিল্টার (isolate-এ চলে):
+/// ১) illumination map — মোটা গ্রিডে সেল-প্রতি "কাগজের উজ্জ্বলতা" (৯০তম
+///    পার্সেন্টাইল — লেখার কালচে যেন মানচিত্র নষ্ট না করে), ৩×৩ মসৃণ করে;
+/// ২) মূল ছবি ÷ illumination map → ছায়া/আলোর গ্রেডিয়েন্ট কেটে কাগজ সমান সাদা;
+/// ৩) সাদা-বিন্দু গেইন (৯২তম পার্সেন্টাইলকে ২৫৫-এ তোলা) + হালকা saturation।
+img.Image _magicColor(img.Image image) {
+  final int w = image.width;
+  final int h = image.height;
+
+  // --- ধাপ ১: illumination grid ---
+  const int cellTarget = 48;
+  final int gw = math.max(2, (w / cellTarget).ceil());
+  final int gh = math.max(2, (h / cellTarget).ceil());
+  final int cells = gw * gh;
+  final hist = Int32List(cells * 256);
+  final sumR = Float64List(cells);
+  final sumG = Float64List(cells);
+  final sumB = Float64List(cells);
+  final sumL = Float64List(cells);
+  final cnt = Int32List(cells);
+  for (var y = 0; y < h; y++) {
+    final int gy = math.min(gh - 1, y * gh ~/ h);
+    for (var x = 0; x < w; x += 2) {
+      final int gx = math.min(gw - 1, x * gw ~/ w);
+      final int c = gy * gw + gx;
+      final p = image.getPixel(x, y);
+      final double r = p.r.toDouble();
+      final double g = p.g.toDouble();
+      final double b = p.b.toDouble();
+      final double l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      hist[c * 256 + l.round().clamp(0, 255)]++;
+      sumR[c] += r;
+      sumG[c] += g;
+      sumB[c] += b;
+      sumL[c] += l;
+      cnt[c]++;
+    }
+  }
+  var illR = Float64List(cells);
+  var illG = Float64List(cells);
+  var illB = Float64List(cells);
+  for (var c = 0; c < cells; c++) {
+    final int n = math.max(1, cnt[c]);
+    final int target = (n * 0.90).round();
+    var acc = 0;
+    var paper = 240.0;
+    for (var v = 0; v < 256; v++) {
+      acc += hist[c * 256 + v];
+      if (acc >= target) {
+        paper = v.toDouble();
+        break;
+      }
+    }
+    // চ্যানেল-অনুপাত ধরে রাখলে ছায়ার রঙ-ছায়াও (color cast) কেটে যায়
+    final double mL = math.max(1.0, sumL[c] / n);
+    final double scale = paper / mL;
+    illR[c] = math.min(255.0, sumR[c] / n * scale);
+    illG[c] = math.min(255.0, sumG[c] / n * scale);
+    illB[c] = math.min(255.0, sumB[c] / n * scale);
+  }
+  // সেল-সীমার খাঁজ এড়াতে ১ দফা ৩×৩ মসৃণকরণ
+  illR = _boxSmooth(illR, gw, gh);
+  illG = _boxSmooth(illG, gw, gh);
+  illB = _boxSmooth(illB, gw, gh);
+
+  final illumSmall = img.Image(width: gw, height: gh);
+  for (var cy = 0; cy < gh; cy++) {
+    for (var cx = 0; cx < gw; cx++) {
+      final int c = cy * gw + cx;
+      illumSmall.setPixelRgba(cx, cy, illR[c].round().clamp(0, 255),
+          illG[c].round().clamp(0, 255), illB[c].round().clamp(0, 255), 255);
+    }
+  }
+  // ছোট মানচিত্র বিলিয়ার-আপস্কেল — পিক্সেল-প্রতি মসৃণ illumination মান
+  final illum = img.copyResize(illumSmall,
+      width: w, height: h, interpolation: img.Interpolation.linear);
+
+
+  // --- ধাপ ২: ভাগ (মূল ÷ আলো) ---
+  final divided = Uint8List(w * h * 3);
+  final lumHist = Int32List(256);
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final p = image.getPixel(x, y);
+      final q = illum.getPixel(x, y);
+      final int di = (y * w + x) * 3;
+      final double qr = math.max(30.0, q.r.toDouble());
+      final double qg = math.max(30.0, q.g.toDouble());
+      final double qb = math.max(30.0, q.b.toDouble());
+      final int dr = (p.r.toDouble() * 255.0 / qr).round().clamp(0, 255);
+      final int dg = (p.g.toDouble() * 255.0 / qg).round().clamp(0, 255);
+      final int db = (p.b.toDouble() * 255.0 / qb).round().clamp(0, 255);
+      divided[di] = dr;
+      divided[di + 1] = dg;
+      divided[di + 2] = db;
+      lumHist[(0.2126 * dr + 0.7152 * dg + 0.0722 * db).round().clamp(0, 255)]++;
+    }
+  }
+
+  // --- ধাপ ৩: সাদা-বিন্দু গেইন + হালকা saturation ---
+  final int total = w * h;
+  final int target = (total * 0.92).round();
+  var acc = 0;
+  var paperLevel = 255;
+  for (var v = 0; v < 256; v++) {
+    acc += lumHist[v];
+    if (acc >= target) {
+      paperLevel = v;
+      break;
+    }
+  }
+  final double gain =
+      (255.0 / math.max(120.0, paperLevel.toDouble())).clamp(1.0, 1.35);
+  const double sat = 1.06;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final int di = (y * w + x) * 3;
+      final double r = divided[di] * gain;
+      final double g = divided[di + 1] * gain;
+      final double b = divided[di + 2] * gain;
+      final double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      final int rr = (luma + (r - luma) * sat).round().clamp(0, 255);
+      final int gg = (luma + (g - luma) * sat).round().clamp(0, 255);
+      final int bb = (luma + (b - luma) * sat).round().clamp(0, 255);
+      image.setPixelRgba(x, y, rr, gg, bb, 255);
+    }
   }
   return image;
 }
 
-/// ফটোকপি-স্টাইল ফিল্টার (isolate-এ):
-/// magic = চ্যানেল-প্রতি ২–৯৮ পার্সেন্টাইল স্ট্রেচ (ব্যাকগ্রাউন্ড সাদা,
-/// লেখা গাঢ়, ছায়া কমে)। ডিকোড ব্যর্থ হলে null।
-img.Image _magicColor(img.Image image) {
-  final histR = List<int>.filled(256, 0);
-  final histG = List<int>.filled(256, 0);
-  final histB = List<int>.filled(256, 0);
-  var total = 0;
-  for (final p in image) {
-    histR[p.r.toInt().clamp(0, 255)]++;
-    histG[p.g.toInt().clamp(0, 255)]++;
-    histB[p.b.toInt().clamp(0, 255)]++;
-    total++;
-  }
-  int percentile(List<int> hist, double fraction) {
-    final target = (total * fraction).round();
-    var acc = 0;
-    for (var v = 0; v < 256; v++) {
-      acc += hist[v];
-      if (acc >= target) return v;
+/// ছোট গ্রিডে ১ দফা ৩×৩ বক্স-মসৃণকরণ (নতুন অ্যারে ফেরত দেয়)।
+Float64List _boxSmooth(Float64List grid, int gw, int gh) {
+  final tmp = Float64List(grid.length);
+  for (var y = 0; y < gh; y++) {
+    for (var x = 0; x < gw; x++) {
+      final int xa = math.max(0, x - 1);
+      final int xb = math.min(gw - 1, x + 1);
+      tmp[y * gw + x] =
+          (grid[y * gw + xa] + grid[y * gw + x] + grid[y * gw + xb]) / 3.0;
     }
-    return 255;
   }
-
-  int mapChannel(int v, int low, int high) {
-    if (high <= low) return v.clamp(0, 255);
-    final scaled = ((v - low) * 255 / (high - low)).round().clamp(0, 255);
-    // হালকা কনট্রাস্ট বুস্ট
-    return ((scaled - 128) * 1.06 + 128).round().clamp(0, 255);
+  final out = Float64List(grid.length);
+  for (var y = 0; y < gh; y++) {
+    final int ya = math.max(0, y - 1);
+    final int yb = math.min(gh - 1, y + 1);
+    for (var x = 0; x < gw; x++) {
+      out[y * gw + x] =
+          (tmp[ya * gw + x] + tmp[y * gw + x] + tmp[yb * gw + x]) / 3.0;
+    }
   }
+  return out;
+}
 
-  final lowR = percentile(histR, 0.02);
-  final highR = percentile(histR, 0.98);
-  final lowG = percentile(histG, 0.02);
-  final highG = percentile(histG, 0.98);
-  final lowB = percentile(histB, 0.02);
-  final highB = percentile(histB, 0.98);
-  for (final p in image) {
-    p.r = mapChannel(p.r.toInt(), lowR, highR);
-    p.g = mapChannel(p.g.toInt(), lowG, highG);
-    p.b = mapChannel(p.b.toInt(), lowB, highB);
+/// CamScanner-স্টাইল adaptive B&W (isolate-এ):
+/// Sauvola লোকাল থ্রেশহোল্ড (স্লাইডিং-উইন্ডো, O(w·h) সময় / O(w) মেমোরি) —
+/// ছায়া-গ্রেডিয়েন্টেও লেখা টিকিয়ে রাখে; সাথে প্লাটো-সংশোধিত গ্লোবাল Otsu-র
+/// ৫৫% ফ্লোর — নইলে বড় গাঢ় অংশ (সিল/ছবি) সাদা হয়ে যেত।
+img.Image _adaptiveBinarize(img.Image image) {
+  final int w = image.width;
+  final int h = image.height;
+  final gray = Uint8List(w * h);
+  final hist = Int32List(256);
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final p = image.getPixel(x, y);
+      final int l =
+          (0.2126 * p.r + 0.7152 * p.g + 0.0722 * p.b).round().clamp(0, 255);
+      gray[y * w + x] = l;
+      hist[l]++;
+    }
+  }
+  final double floor = _otsuFromHist(hist, w * h) * 0.55;
+
+  const double k = 0.2;
+  const double rMax = 128.0;
+  var win = (math.min(w, h) ~/ 30).clamp(25, 61);
+  if (win.isEven) win++;
+  final int rad = win ~/ 2;
+
+  // উল্লম্ব উইন্ডো: রিং-বাফারে সারি-প্রতি মান রেখে কলাম-যোগ হালনাগাদ
+  final colSum = Float64List(w);
+  final colSumSq = Float64List(w);
+  final ring = List.generate(win, (_) => Float64List(w), growable: false);
+  final ringSq = List.generate(win, (_) => Float64List(w), growable: false);
+
+  for (var y = 0; y < h; y++) {
+    final int ri = y % win;
+    final row = ring[ri];
+    final rowSq = ringSq[ri];
+    for (var x = 0; x < w; x++) {
+      final double v = gray[y * w + x].toDouble();
+      colSum[x] += v - row[x]; // পুরনো রো-মান বাদ, নতুনটা যোগ
+      colSumSq[x] += v * v - rowSq[x];
+      row[x] = v;
+      rowSq[x] = v * v;
+    }
+    // অনুভূমিক উইন্ডো: স্লাইডিং যোগ — T = m·(1 − k·(1 − s/R))
+    final int rowsIn = math.min(y + 1, win); // উল্লম্ব উইন্ডোতে সারি-সংখ্যা
+    double wSum = 0, wSumSq = 0;
+    int cnt = 0, left = 0, right = -1;
+    for (var x = 0; x < w; x++) {
+      final int nr = math.min(x + rad, w - 1);
+      while (right < nr) {
+        right++;
+        wSum += colSum[right];
+        wSumSq += colSumSq[right];
+        cnt++;
+      }
+      final int nl = math.max(x - rad, 0);
+      while (left < nl) {
+        wSum -= colSum[left];
+        wSumSq -= colSumSq[left];
+        cnt--;
+        left++;
+      }
+      final double n = (cnt * rowsIn).toDouble();
+      final double m = wSum / n;
+      final double varr = math.max(0.0, wSumSq / n - m * m);
+      final double sd = math.sqrt(varr);
+      var t = m * (1 - k * (1 - sd / rMax));
+      if (t < floor) t = floor;
+      final int out = gray[y * w + x] > t ? 255 : 0;
+      image.setPixelRgba(x, y, out, out, out, 255);
+    }
   }
   return image;
 }
 
 /// ডকুমেন্ট ফিল্টার (isolate-এ):
-/// original = অপরিবর্তিত; magic = ব্যাকগ্রাউন্ড সাদা/লেখা গাঢ়;
-/// gray = সাদাকালো; bw = থ্রেশহোল্ড (শুধু লেখা)। ডিকোড ব্যর্থ হলে null।
+/// original = অপরিবর্তিত; magic = ছায়া-আলো মুক্ত (illumination ভাগ);
+/// gray = সাদাকালো; bw = adaptive বাইনারাইজ (Sauvola + Otsu-ফ্লোর)।
+/// ডিকোড ব্যর্থ হলে null।
 Future<Uint8List?> enhanceDocumentInIsolate(
     Uint8List bytes, DocumentFilterMode mode) {
   return Isolate.run(() {
@@ -353,9 +541,7 @@ Future<Uint8List?> enhanceDocumentInIsolate(
       case DocumentFilterMode.gray:
         return img.encodeJpg(img.grayscale(decoded), quality: 88);
       case DocumentFilterMode.bw:
-        final gray = img.grayscale(decoded);
-        final threshold = _otsuThreshold(gray);
-        return img.encodeJpg(_applyThreshold(gray, threshold), quality: 88);
+        return img.encodeJpg(_adaptiveBinarize(decoded), quality: 88);
       case DocumentFilterMode.magic:
         return img.encodeJpg(_magicColor(decoded), quality: 90);
     }

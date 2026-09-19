@@ -177,6 +177,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.0"
+  cunning_document_scanner:
+    dependency: "direct main"
+    description:
+      name: cunning_document_scanner
+      sha256: "10c8e5fbc32f89784af36ee3ca25965a6aa1439c310b472b0f32d556690a7013"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.3"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -328,14 +336,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
-  google_mlkit_document_scanner:
-    dependency: "direct main"
-    description:
-      name: google_mlkit_document_scanner
-      sha256: "8cc17a7f62d4285298f7970867d24c030d42840068d8b680b988655d50b196ec"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.6.1"
   hooks:
     dependency: transitive
     description:

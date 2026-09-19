@@ -177,7 +177,8 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
       }
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
+      // result=true — ব্যাচ-মোডে "পরের বাকি ছাত্রে অটো-অ্যাডভান্স" বোঝাতে
+      Navigator.pop(context, true);
       messenger.showSnackBar(
         SnackBar(content: Text('${widget.type.label} স্ক্যান সেভ হয়েছে ✓')),
       );
@@ -533,6 +534,19 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
                 icon: const Icon(Icons.photo_camera),
                 label: const Text('ক্যামেরা দিয়ে তুলুন'),
               ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: _startScan,
+              icon: const Icon(Icons.refresh),
+              label: const Text('আবার চেষ্টা করুন'),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _startScan,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('পুনরায় স্ক্যান করুন',
+                  style: TextStyle(color: Colors.white70)),
+            ),
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => Navigator.pop(context),

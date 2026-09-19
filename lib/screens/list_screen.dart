@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/document.dart';
+import '../models/student.dart';
 import '../providers/student_provider.dart';
 import '../utils/contact_helper.dart';
 import 'batch_scan_screen.dart';
@@ -12,6 +13,7 @@ import 'document_dashboard_screen.dart';
 import 'export_screen.dart';
 import 'gallery_screen.dart';
 import 'settings_screen.dart';
+import 'student_edit_screen.dart';
 import 'student_report_screen.dart';
 
 class ListScreen extends StatefulWidget {
@@ -68,6 +70,11 @@ class _ListScreenState extends State<ListScreen> {
                         value: p.isPassportMode,
                         onChanged: (v) => p.togglePassport(v)),
                   ])),
+          IconButton(
+            tooltip: 'নাম অটো-ফিল (ইংরেজি/আরবী — নির্বাচিত স্কোপে)',
+            icon: const Icon(Icons.auto_awesome),
+            onPressed: () => _batchAutoFillNames(context),
+          ),
           IconButton(
             tooltip: 'ব্যাচ ডকুমেন্ট স্ক্যান',
             icon: const Icon(Icons.document_scanner),
@@ -210,15 +217,51 @@ class _ListScreenState extends State<ListScreen> {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, idx) {
                   final s = provider.students[idx];
-                  final captured = s.isCaptured == 1 && s.imagePath != null;
+                  // সিঙ্ক IO নেই (৪২৩৮+ রো-তে jank রোধ): imagePath না থাকলে
+                  // PHOTO ডকুমেন্টের পাথ — ফাইল-মিসিং হলে FileImage-এর
+                  // onBackgroundImageError ধূসর বৃত্ত দেখায় (সেটাই placeholder)।
+                  final photoPath = s.imagePath ??
+                      provider.docOf(s.dakhila, DocType.PHOTO)?.filePath;
+                  final captured = photoPath != null;
                   final withDocs = provider.withDocs(s);
-                  return ListTile(
+                  // ফেজ B: দ্রুত-অ্যাকশন — ডানে টানলে রিপোর্ট, বামে এডিট
+                  return Dismissible(
+                    key: ValueKey('stu-${s.dakhila}'),
+                    direction: DismissDirection.horizontal,
+                    background: _swipeBg(
+                        alignment: Alignment.centerLeft,
+                        color: Colors.teal,
+                        icon: Icons.assignment,
+                        label: 'রিপোর্ট'),
+                    secondaryBackground: _swipeBg(
+                        alignment: Alignment.centerRight,
+                        color: Colors.indigo,
+                        icon: Icons.edit,
+                        label: 'এডিট'),
+                    resizeDuration: null,
+                    confirmDismiss: (direction) async {
+                      if (direction == DismissDirection.startToEnd) {
+                        await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    StudentReportScreen(student: s)));
+                      } else {
+                        await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    StudentEditScreen(student: s)));
+                      }
+                      return false; // টানলেই অ্যাকশন — তালিকা থেকে বাদ যায় না
+                    },
+                    child: ListTile(
                     leading: captured
                         ? CircleAvatar(
                             // পারফরম্যান্স ফিক্স: থাম্বনেইলে পুরো রেজোলিউশন
                             // ডিকোড নয় — 128px-এ (বড় লিস্টে মেমোরি ও jank কমায়)
                             backgroundImage: ResizeImage(
-                              FileImage(File(s.imagePath!)),
+                              FileImage(File(photoPath)),
                               width: 128,
                             ),
                             onBackgroundImageError: (_, __) {},
@@ -310,6 +353,7 @@ class _ListScreenState extends State<ListScreen> {
                               builder: (_) =>
                                   DocumentDashboardScreen(student: s)));
                     },
+                    onLongPress: () => _studentMenu(context, provider, s),
                     trailing: IconButton(
                       icon: const Icon(Icons.camera_alt, color: Colors.teal),
                       onPressed: () {
@@ -319,8 +363,9 @@ class _ListScreenState extends State<ListScreen> {
                                 builder: (_) => CameraScreen(student: s)));
                       },
                     ),
-                  );
-                },
+                  ),
+                );
+              },
               ),
             )
           ],
@@ -387,5 +432,166 @@ class _ListScreenState extends State<ListScreen> {
         }
       },
     );
+  }
+
+  /// সোয়াইপের পেছনের রঙিন পটভূমি।
+  Widget _swipeBg({
+    required Alignment alignment,
+    required Color color,
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      color: color,
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white),
+          const SizedBox(width: 8),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  /// লং-প্রেস মেনু — ঘন-ঘন ব্যবহৃত অ্যাকশন এক জায়গায়।
+  void _studentMenu(BuildContext context, StudentProvider provider, Student s) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.dashboard, color: Colors.teal),
+              title: const Text('ডকুমেন্ট ড্যাশবোর্ড'),
+              subtitle: Text('${s.dakhila} — ${s.stuName}'),
+              onTap: () {
+                Navigator.pop(sheet);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => DocumentDashboardScreen(student: s)));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.assignment, color: Colors.teal),
+              title: const Text('রিপোর্ট ফরম'),
+              onTap: () {
+                Navigator.pop(sheet);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => StudentReportScreen(student: s)));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit, color: Colors.indigo),
+              title: const Text('তথ্য সম্পাদনা'),
+              onTap: () {
+                Navigator.pop(sheet);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => StudentEditScreen(student: s)));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('ছবি মুছুন (ট্র্যাশে — Undo সুবিধা)'),
+              onTap: () {
+                Navigator.pop(sheet);
+                _confirmDeletePhoto(context, provider, s);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// ছবি-মুছা নিশ্চিতকরণ + Undo snackbar (ট্র্যাশ থেকে ফেরানো যায়)।
+  Future<void> _confirmDeletePhoto(
+      BuildContext context, StudentProvider provider, Student s) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ছবি মুছবেন?'),
+        content: Text('${s.dakhila} — ${s.stuName}\n\nছবিটি ট্র্যাশে যাবে; '
+            'কিছুক্ষণের মধ্যে পূর্বাবস্থায় ফেরানো যাবে।'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('বাতিল')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('মুছুন')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final trash = await provider.clearCaptured(s.dakhila);
+    messenger.showSnackBar(SnackBar(
+      content: Text(trash == null ? 'ছবি ছিল না' : 'ছবি ট্র্যাশে গেছে ✓'),
+      action: trash == null
+          ? null
+          : SnackBarAction(
+              label: 'পূর্বাবস্থা',
+              onPressed: () => provider.restoreFromTrash(s.dakhila, trash),
+            ),
+    ));
+  }
+
+  /// ব্যাচ নাম-অটো-ফিল — ফিল্টার-স্কোপের সব ছাত্রের খালি En/Ar নাম ভরা।
+  Future<void> _batchAutoFillNames(BuildContext context) async {
+    final provider = context.read<StudentProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+    final progress =
+        ValueNotifier<({int done, int total})?>((done: 0, total: 0));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ValueListenableBuilder<({int done, int total})?>(
+        valueListenable: progress,
+        builder: (_, p, __) => Center(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: Colors.teal),
+                  const SizedBox(height: 12),
+                  Text(p == null
+                      ? 'শুরু হচ্ছে...'
+                      : 'নাম পূরণ হচ্ছে... ${p.done}/${p.total}'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      final res = await provider.batchAutoFillNames(
+          onProgress: (done, total) =>
+              progress.value = (done: done, total: total));
+      nav.pop();
+      if (res.filled == 0) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('এই স্কোপে সবার ইংরেজি/আরবী নাম আগেই আছে ✓')));
+        return;
+      }
+      messenger.showSnackBar(SnackBar(
+        content: Text('✨ ${res.filled} জনের নাম পূরণ — '
+            '${res.cacheHits} জন ক্যাশ থেকে'
+            '${res.repaired > 0 ? '; 🔧 ${res.repaired} জনের ভাঙা নাম নতুন করে পূরণ' : ''}'
+            '${res.unknownTokens > 0 ? '; ⚠️ ${res.unknownTokens} টোকেন অনুমিত (যাচাই করুন)' : ''}'),
+      ));
+    } catch (e) {
+      nav.pop();
+      debugPrint('Batch name autofill failed: $e');
+      messenger.showSnackBar(SnackBar(content: Text('ব্যর্থ: $e')));
+    }
   }
 }

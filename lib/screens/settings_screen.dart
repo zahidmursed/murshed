@@ -10,8 +10,11 @@ import 'package:provider/provider.dart';
 
 import '../models/document.dart';
 import '../providers/student_provider.dart';
+import '../services/backup_service.dart';
 import '../services/storage_service.dart';
+import '../utils/case_notes_guard.dart';
 import '../utils/image_processor.dart';
+import 'teacher_manage_screen.dart';
 
 /// সেটিংস: কাস্টম JSON ইমপোর্ট, ডেটা রিসেট, আউটপুট ফোল্ডার।
 class SettingsScreen extends StatefulWidget {
@@ -29,6 +32,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _logoBusy = false;
   bool _folderBusy = false;
   bool _folderCancel = false;
+  bool _dbBackupBusy = false;
+  bool _dbRestoreBusy = false;
+  String _dbBackupMsg = '';
+  String _dbRestoreMsg = '';
   String _folderStatus = '';
   String _backupStatus = '';
   String _recoverStatus = '';
@@ -102,6 +109,108 @@ class _SettingsScreenState extends State<SettingsScreen> {
       label: 'Excel ইমপোর্ট',
       run: provider.importFromExcelFile,
     );
+  }
+
+  /// ফেজ C: Excel রাউন্ড-ট্রিপ — এক্সপোর্ট করা ফাইলের অ-খালি সেল দিয়ে আপডেট।
+  Future<void> _importRoundTrip() {
+    final provider = context.read<StudentProvider>();
+    return _importData(
+      extensions: ['xlsx'],
+      label: 'Excel রাউন্ড-ট্রিপ আপডেট',
+      run: (path) => provider
+          .importStudentUpdatesFromXlsx(path)
+          .then((r) => r.applied),
+    );
+  }
+
+  /// ফেজ C: এক-ট্যাপ পূর্ণ ব্যাকআপ (DB + v2 ফাইল + লোগো → ZIP)।
+  Future<void> _fullBackup() async {
+    final provider = context.read<StudentProvider>();
+    setState(() {
+      _dbBackupBusy = true;
+      _dbBackupMsg = 'ব্যাকআপ হচ্ছে...';
+    });
+    try {
+      final path = await BackupService.backup(
+        institutionName: provider.institutionName,
+        onProgress: (done, total) {
+          if (mounted) {
+            setState(
+                () => _dbBackupMsg = 'ব্যাকআপ হচ্ছে... $done/$total ফাইল');
+          }
+        },
+      );
+      if (!mounted) return;
+      setState(() => _dbBackupMsg = '✅ সেভ হয়েছে: $path');
+    } catch (e) {
+      debugPrint('Backup failed: $e');
+      if (!mounted) return;
+      setState(() => _dbBackupMsg = '❌ ব্যাকআপ ব্যর্থ: $e');
+    } finally {
+      if (mounted) setState(() => _dbBackupBusy = false);
+    }
+  }
+
+  /// ফেজ C: ZIP থেকে পূর্ণ পুনরুদ্ধার (বিপজ্জনক — দ্বিতীয় নিশ্চিতকরণসহ)।
+  Future<void> _fullRestore() async {
+    final provider = context.read<StudentProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final files = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['zip'],
+    );
+    final path = files.isEmpty ? null : files.single.path;
+    if (path == null) return;
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('সবকিছু পুনরুদ্ধার করবেন?'),
+        content: const Text(
+            'বর্তমান ডেটাবেস ও ছবি/ডকুমেন্ট ব্যাকআপের কনটেন্ট দিয়ে '
+            'সম্পূর্ণ বদলে যাবে। এটা পরে বাতিল করা যাবে না।'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('বাতিল')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('পুনরুদ্ধার করুন')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() {
+      _dbRestoreBusy = true;
+      _dbRestoreMsg = 'শুরু হচ্ছে...';
+    });
+    try {
+      final res = await BackupService.restore(
+        zipPath: path,
+        institutionName: provider.institutionName,
+        onStep: (step) {
+          if (mounted) setState(() => _dbRestoreMsg = step);
+        },
+      );
+      if (res.institutionName != null &&
+          res.institutionName!.isNotEmpty &&
+          res.institutionName != provider.institutionName) {
+        provider.setInstitutionName(res.institutionName!);
+      }
+      await provider.load();
+      if (!mounted) return;
+      setState(() => _dbRestoreMsg =
+          '✅ সম্পন্ন — ${res.students} জন ছাত্র, ${res.files} ফাইল');
+      messenger.showSnackBar(SnackBar(
+          content: Text(
+              '✅ পুনরুদ্ধার সম্পন্ন: ${res.students} জন ছাত্র + ${res.files} ফাইল')));
+    } catch (e) {
+      debugPrint('Restore failed: $e');
+      if (!mounted) return;
+      setState(() => _dbRestoreMsg = '❌ পুনরুদ্ধার ব্যর্থ: $e');
+    } finally {
+      if (mounted) setState(() => _dbRestoreBusy = false);
+    }
   }
 
   /// Phase 7: `দাখিলা_টাইপ.ext` নামের একাধিক ফাইল একসাথে ইমপোর্ট।
@@ -183,8 +292,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('${type.label} ফোল্ডার ইমপোর্ট'),
-        content: Text(
-            'ফোল্ডারের সব ফাইল ${type.label} হিসেবে ইমপোর্ট হবে।\n'
+        content: Text('ফোল্ডারের সব ফাইল ${type.label} হিসেবে ইমপোর্ট হবে।\n'
             'প্রতিটি ফাইলের নাম দাখিলা নম্বর হতে হবে (যেমন 281.jpg)।'),
         actions: [
           TextButton(
@@ -403,6 +511,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Row(children: [
+                        Icon(Icons.backup, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('ব্যাকআপ ও পুনরুদ্ধার (সম্পূর্ণ)',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
+                      ]),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'ডেটাবেস + সব ছবি/ডকুমেন্ট (v2 ফোল্ডার) + লোগো — '
+                        'এক ZIP-এ। আনইনস্টল, ফোন-বদল বা ক্লিয়ার-ডেটার '
+                        'আগে অবশ্যই নিন।',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _dbBackupBusy ? null : _fullBackup,
+                              icon: _dbBackupBusy
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.download),
+                              label: const Text('ব্যাকআপ তৈরি'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              onPressed: _dbRestoreBusy ? null : _fullRestore,
+                              icon: _dbRestoreBusy
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.restore),
+                              label: const Text('পুনরুদ্ধার'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_dbBackupMsg.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(_dbBackupMsg,
+                            style: const TextStyle(fontSize: 12)),
+                      ],
+                      if (_dbRestoreMsg.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(_dbRestoreMsg,
+                            style: const TextStyle(fontSize: 12)),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(children: [
                         Icon(Icons.business, color: Colors.teal),
                         SizedBox(width: 8),
                         Text('প্রতিষ্ঠান (কাস্টমাইজ)',
@@ -494,22 +669,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
-                        onPressed:
-                            _folderBusy ? null : () => _importFolder(DocType.PHOTO),
+                        onPressed: _folderBusy
+                            ? null
+                            : () => _importFolder(DocType.PHOTO),
                         icon: const Icon(Icons.photo_camera),
                         label: const Text('ছবি ফোল্ডার ইমপোর্ট'),
                       ),
                       const SizedBox(height: 6),
                       OutlinedButton.icon(
-                        onPressed:
-                            _folderBusy ? null : () => _importFolder(DocType.BIRTH),
+                        onPressed: _folderBusy
+                            ? null
+                            : () => _importFolder(DocType.BIRTH),
                         icon: const Icon(Icons.description),
                         label: const Text('জন্মসনদ ফোল্ডার ইমপোর্ট'),
                       ),
                       const SizedBox(height: 6),
                       OutlinedButton.icon(
-                        onPressed:
-                            _folderBusy ? null : () => _importFolder(DocType.FORM),
+                        onPressed: _folderBusy
+                            ? null
+                            : () => _importFolder(DocType.FORM),
                         icon: const Icon(Icons.upload_file),
                         label: const Text('ফরম ফোল্ডার ইমপোর্ট'),
                       ),
@@ -622,6 +800,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   children: [
                     ListTile(
+                      leading: const Icon(Icons.school, color: Colors.teal),
+                      title: const Text('শিক্ষক তালিকা সম্পাদনা'),
+                      subtitle: const Text(
+                          'রিপোর্ট ফরমে দায়িত্বপ্রাপ্ত শিক্ষকের নাম ও মোবাইল — '
+                          'যোগ/সম্পাদনা/মুছে ফেলা করা যায়'),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const TeacherManageScreen()),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.lock_outline,
+                          color: Colors.deepOrange),
+                      title: const Text('কেস নোট PIN'),
+                      subtitle: const Text(
+                          'কেস নোট (রিপোর্ট ফরম) খোলার সময় পিন চাওয়া হবে — '
+                          'সেট/পরিবর্তন/সরানো করুন'),
+                      onTap: () => CaseNotesGuard.manageFromSettings(context),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
                       leading: _importing
                           ? const SizedBox(
                               width: 24,
@@ -631,7 +832,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: const Text('JSON ফাইল থেকে ডাটা ইমপোর্ট'),
                       subtitle: const Text(
                           'ডিভাইস থেকে JSON ফাইল বেছে নিন। নতুন ডেটা পুরনোটার বদলে '
-                          'বসবে — একই দাখিলার তোলা ছবির হিসাব থেকে যাবে।'),
+                          'বসবে — তোলা ছবি ও অ্যাপে সম্পাদিত রেকর্ডের তথ্য সংরক্ষিত থাকবে।'),
                       onTap: _importing ? null : _importJson,
                     ),
                     const Divider(height: 1),
@@ -640,8 +841,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: const Text('Excel ফাইল থেকে ডাটা ইমপোর্ট (.xlsx)'),
                       subtitle: const Text(
                           'কলাম হেডার (যেকোনো ক্রমে): DAKHILA, STU_NAME, CLASS_NAME, '
-                          'FORIK_NO, FATHER_NAME, DAKHILA_YEAR'),
+                          'FORIK_NO, FATHER_NAME, DAKHILA_YEAR। অ্যাপে সম্পাদিত '
+                          'রেকর্ডের তথ্য সংরক্ষিত থাকবে।'),
                       onTap: _importing ? null : _importExcel,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.published_with_changes,
+                          color: Colors.deepOrange),
+                      title: const Text(
+                          'Excel রাউন্ড-ট্রিপ আপডেট (En/Ar নাম ইত্যাদি)'),
+                      subtitle: const Text(
+                          'এক্সপোর্ট করা xlsx (Excel-এ পূর্ণ তথ্য) সম্পাদনা করে '
+                          'ফেরত দিন — শুধু ভরা সেল কার্যকর হবে; দাখিলা মিলিয়ে '
+                          'আপডেট হয় (নাম×৩-লিপি, পিতা-মাতা, মোবাইল, নম্বর, জন্ম-তথ্য)।'),
+                      onTap: _importing ? null : _importRoundTrip,
                     ),
                     const Divider(height: 1),
                     ListTile(

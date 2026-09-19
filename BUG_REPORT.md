@@ -3,6 +3,24 @@
 **তারিখ:** 2026-09-15 • **ভার্সন:** 2.1.0+16 • **স্কোপ:** `lib/` (২১ ফাইল) + `android/` (MainActivity.kt, Manifest)
 **বেসলাইন স্বাস্থ্য:** `flutter analyze` → ৪টি info • `flutter test` → ২৬/২৬ পাস ✅ • Git clean
 **ফিক্স স্ট্যাটাস (2026-09-15):** রিপোর্টের **সব ১৭টি আইটেম** ঠিক করা হয়েছে → `flutter analyze` = 0 issues, `flutter test` = **২৮/২৮ পাস** (২টি নতুন regression টেস্টসহ) ✅
+---
+
+## 🔄 Phase 0 (2026-09-18) — নতুন রিলিজ-ব্লকার রিপোর্ট ও ফিক্স
+
+**বেসলাইন:** `flutter analyze` = 0 issues • `flutter test` = 86/86 ✅ • signed release APK verify ✅
+বিস্তারিত: `REVIEW-2026-09-18.md`
+
+| # | সিভারিটি | সমস্যা | অবস্থা |
+|---|---|---|---|
+| C1 | 🔴 ক্রিটিক্যাল | ক্লাস/ফরিক বদলালে `editStudentIdentity()`-এ হাতে বানানো ছোট `Student` বসানো হতো → `mother_name`, `birth_date`, `birth_certificate_no`, `avg_num_*`, `address_*`, `*_name_en/ar` (মোট ২০ কলাম) নীরবে খালি হয়ে যেত, অথচ UI "সফল" দেখাত (লাইভ প্রোব দিয়ে প্রমাণিত) | ✅ ফিক্স (`old.copyWith(...)` + ৩ ফিল্ড ওভাররাইড) + রিগ্রেশন টেস্ট |
+| H1 | 🔴 হাই | `deleteAllStudents()` documents মুছত না + `PRAGMA foreign_keys=ON` না থাকায় `ON DELETE CASCADE` নিষ্ক্রিয় ছিল → "ডাটা রিসেট"-এর পরেও পুরনো ডক ফিরে আসত, `total_docs` stale | ✅ ফিক্স (onConfigure + ট্রানজেকশন + import-এ documents স্ন্যাপশট/পুনঃস্থাপন) + ৩ টেস্ট |
+| H3 | 🟠 হাই | `_healPhotoPaths()` একমুখী ছিল (ডক/ফাইল আছে কিন্তু `is_captured=0` → মেরামত হতো না; হেডারের তোলা/বাকি ও ZIP export ভুল) | ✅ ফিক্স (দুই-মুখী, repair-only) + ২ টেস্ট |
+| S1 | 🔴 সিকিউরিটি | Release keystore-এর পাসওয়ার্ড tracked ডকে (`PLAN-3DOC.md`) + git history-তে (`ee4b4c1`) ছিল | ⚠️ ট্রি থেকে সরানো + রুনবুক/স্ক্রিপ্ট/env-signing যোগ; **রোটেশন ও history scrub বাকি** (`SECURITY-KEY-ROTATION.md`) |
+
+**রিগ্রেশন টেস্ট:** `test/phase0_fixes_test.dart` (C1, H1, H1b, H1c, H3, H3b)
+
+---
+
 
 ---
 

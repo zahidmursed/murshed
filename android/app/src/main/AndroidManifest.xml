@@ -4,9 +4,6 @@
     <!-- ক্যামেরা permission -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- ML Kit Document Scanner-মডিউল প্রথমবার ডাউনলোডের জন্য (এরপর অফলাইনে চলে) -->
-    <uses-permission android:name="android.permission.INTERNET" />
-
     <!-- পুরনো ছবি রিকভারি: গ্যালারির Pictures/DakhilaCamera স্ক্যান (Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
