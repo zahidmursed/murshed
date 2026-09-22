@@ -1,0 +1,19 @@
+# আপলোড করা "ছবি" কখনো স্ক্রিপ্ট হিসেবে চলবে না (আপলোড-ভিত্তিক আক্রমণ আটকায়)
+<IfModule mod_php7.c>
+  php_flag engine off
+</IfModule>
+<IfModule mod_php.c>
+  php_flag engine off
+</IfModule>
+
+<FilesMatch "\.(php|php[0-9]?|phtml|phar|pl|py|cgi|asp|aspx|jsp|sh|htaccess)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+Options -Indexes -ExecCGI

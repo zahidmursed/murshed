@@ -23,6 +23,23 @@ class ReplaceReport {
   final List<String> collisions = <String>[];
 }
 
+/// সার্ভারের তালিকা বসানোর ফল (S2 pull)।
+class StudentApplyStats {
+  /// নতুন দাখিলা — এই ফোনে ছিল না।
+  int added = 0;
+
+  /// সার্ভারের মান বসানো হলো (লোকালে কোনো সম্পাদনা ছিল না)।
+  int updated = 0;
+
+  /// শিক্ষক নিজে সম্পাদনা করেছিলেন (is_edited=1) — কেন্দ্রীয় মান চাপানো হলো না।
+  int conflicts = 0;
+
+  /// সার্ভারে soft-delete (deleted_at) → এই ফোনের তালিকা থেকেও বাদ।
+  int deactivated = 0;
+
+  int get total => added + updated + conflicts + deactivated;
+}
+
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
@@ -51,7 +68,7 @@ class DatabaseHelper {
     final path = join(dbPath, filePath);
     return await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
       // ইন্টিগ্রিটি ফিক্স: schema-তে documents → students ON DELETE CASCADE লেখা
@@ -103,6 +120,8 @@ class DatabaseHelper {
     await _seedTeachersFromAsset(db);
     await _createCaseNotesTable(db);
     await _createNameCacheTable(db);
+    // v13: ক্লাউড-সিঙ্ক কলাম + cloud_docs/sync_log টেবিল (ফ্রেশ ইনস্টলেও)
+    await _upgradeToV13(db);
   }
 
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
@@ -137,6 +156,66 @@ class DatabaseHelper {
     if (oldVersion < 12) {
       await _upgradeToV12(db);
     }
+    if (oldVersion < 13) {
+      await _upgradeToV13(db);
+    }
+  }
+
+  /// v12 → v13 (S2: অফলাইন-ফার্স্ট + অনলাইন সিঙ্ক)।
+  /// * `documents`-এ `sync_state` — কোন ডক এখনো সার্ভারে যায়নি
+  ///   (`pending`/`failed`/`skipped`/`synced`), `storage_path` = সার্ভারে
+  ///   ফাইলের পথ, `server_at` = সার্ভারে ওঠার সময়, `captured_by` = কোন
+  ///   শিক্ষক তুলেছেন।
+  /// * `students`-এ `synced_at` — সার্ভার থেকে কবে নামানো হয়েছিল।
+  /// * `cloud_docs` — সার্ভারে আছে কিন্তু এই ফোনে নেই এমন ডকুমেন্টের
+  ///   রেজিস্ট্রি (UI-তে "অন্য কারো তোলা ছবি" দেখানো যায়)।
+  /// * `sync_log` — প্রতি সিঙ্ক-সেশনের হিসাব (ডায়াগনস্টিকস)।
+  ///
+  /// ফিক্স (S2): আপগ্রেডের পরে পুরনো ফোনে-তোলা সব ছবি একবার `pending` হয়
+  /// (অর্থাৎ "আপলোড-অপেক্ষমাণ") — সংযোগ-স্থাপনের পরে সেটিংস/Sync স্ক্রিনে
+  /// ইউজার নিজেই ঠিক করেন (পুরনো সব যাবে / শুধু নতুন যাবে)।
+  Future _upgradeToV13(Database db) async {
+    await _addColumnIfMissing(db, 'students', 'synced_at TEXT');
+    // S2-ফিক্স: updateStudentInfo() লোকাল-সম্পাদনাকে 'pending' চিহ্নিত করে —
+    // কলামটি না থাকলে যেকোনো সম্পাদনা "no such column: sync_state" ফেল করত।
+    await _addColumnIfMissing(db, 'students', "sync_state TEXT DEFAULT 'local'");
+    await _addColumnIfMissing(db, 'documents', 'sync_state TEXT');
+    await _addColumnIfMissing(db, 'documents', 'storage_path TEXT');
+    await _addColumnIfMissing(db, 'documents', 'server_at TEXT');
+    await _addColumnIfMissing(db, 'documents', 'captured_by TEXT');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_doc_sync ON documents(sync_state)');
+    await _createSyncTables(db);
+    // বিদ্যমান ডক → অপেক্ষমাণ (ইউজার চাইলে Sync স্ক্রিন থেকে বাদ দিতে পারবেন)
+    await db.execute('UPDATE documents SET sync_state = '
+        "COALESCE(NULLIF(sync_state, ''), 'pending')");
+  }
+
+  Future _createSyncTables(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS cloud_docs(
+      dakhila TEXT NOT NULL,
+      doc_type TEXT NOT NULL,
+      storage_path TEXT,
+      mime_type TEXT,
+      captured_by TEXT,
+      captured_at TEXT,
+      is_verified INTEGER DEFAULT 0,
+      synced_at TEXT,
+      PRIMARY KEY(dakhila, doc_type)
+    )
+    ''');
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS sync_log(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at TEXT,
+      finished_at TEXT,
+      uploaded INTEGER DEFAULT 0,
+      downloaded INTEGER DEFAULT 0,
+      failed INTEGER DEFAULT 0,
+      note TEXT
+    )
+    ''');
   }
 
   /// v11 → v12: নাম-ক্যাশ — ব্যবহারকারী-নিশ্চিত (বাংলা → ইংরেজি, আরবী)
@@ -559,8 +638,11 @@ class DatabaseHelper {
               where: 'id = ?', whereArgs: [e.key]);
         }
         // is_edited: 1 — কাস্টম ইমপোর্টে এই রেকর্ডের সম্পাদনা সংরক্ষিত থাকবে (স্তর ৬)
-        await txn.update('students', {...updated.toMap(), 'is_edited': 1},
-            where: 'dakhila = ?', whereArgs: [updated.dakhila]);
+        await txn.update(
+            'students',
+            {...updated.toMap(), 'is_edited': 1, 'sync_state': 'pending'},
+            where: 'dakhila = ?',
+            whereArgs: [updated.dakhila]);
       });
       return true;
     } catch (e) {
@@ -590,9 +672,12 @@ class DatabaseHelper {
   }
 
   /// ডকুমেন্ট INSERT OR REPLACE + students.total_docs recalc।
+  /// S2: নতুন/বদলানো ডক `sync_state='pending'` — ক্লাউড-সিঙ্ক চালু থাকলে
+  /// পরের সুযোগে সার্ভারে উঠবে (নেট-না-থাকলে কিছুই হারায় না)।
   Future<void> upsertDocument(StudentDocument doc) async {
     final db = await database;
-    await db.insert('documents', doc.toRow(),
+    final row = doc.toRow()..['sync_state'] = 'pending';
+    await db.insert('documents', row,
         conflictAlgorithm: ConflictAlgorithm.replace);
     await _recalcTotalDocs(db, doc.dakhila);
   }
@@ -655,12 +740,13 @@ class DatabaseHelper {
   /// স্তর ১ সম্পাদনা: নিরাপদ ফিল্ড (নাম/পিতা/মোবাইল/ঠিকানা/নম্বর/বছর) আপডেট।
   /// [values] DB-স্কিমা কী (stu_name, father_name, ...) নেয়; দাখিলা বদলায় না।
   /// `is_edited` ফ্ল্যাগ বসায় — কাস্টম ইমপোর্টে সম্পাদনা সংরক্ষিত হয় (স্তর ৬)।
+  /// S2: `sync_state='pending'` — pull-এ সার্ভারের মান এই রো চাপা দেবে না।
   Future<void> updateStudentInfo(
       String dakhila, Map<String, dynamic> values) async {
     final db = await database;
     await db.update(
       'students',
-      {...values, 'is_edited': 1},
+      {...values, 'is_edited': 1, 'sync_state': 'pending'},
       where: 'dakhila = ?',
       whereArgs: [dakhila],
     );
@@ -805,10 +891,11 @@ class DatabaseHelper {
   ];
 
   ///
-  /// Phase 1 (H2 collision-গার্ড): সংরক্ষণ যাচাইকৃত — পুরনো ও নতুন রেকর্ডের
-  /// `dakhila_year`/`exam_year` **হুবহু মিললে** কেবল তখনই capture/edited/ডক
-  /// প্রিজার্ভ হয়। একই দাখিলা কিন্তু ভিন্ন বছর (নতুন ব্যাচ) = ভিন্ন ব্যক্তি —
-  /// আগের ছাত্রের ছবি/সম্পাদনা আর নতুন ছাত্রের নামে বসবে না।
+  /// ফিক্স (2026-09-19): দাখিলা নম্বরই ছাত্রের স্থায়ী পরিচয় — একই দাখিলা
+  /// ভিন্ন বছরে = **একই ব্যক্তি** (নতুন ব্যাচ নয়)। তাই capture/edited/নাম/
+  /// ডক-প্রিজার্ভ এখন শুধু **দাখিলা-মিলে** ঘটে; বছর-যাচাই নেই। ইমপোর্টে
+  /// না-থাকা দাখিলা মানে সেই ছাত্র এই বছরের তালিকায় নেই — তার ডক-স্লট
+  /// বাদ যাবে (পুরনো আচরণই), ফাইল ডিস্কে অক্ষত থাকে।
   /// `preserveCaptures: false` দিলে সম্পূর্ণ তাজা ইমপোর্ট (কিছুই বহন নয়)।
   Future<ReplaceReport> replaceAllStudents(List<Map<String, dynamic>> maps,
       {bool preserveCaptures = true}) async {
@@ -820,35 +907,24 @@ class DatabaseHelper {
         'image_path',
         'is_captured',
         'is_edited',
-        'dakhila_year',
-        'exam_year',
         ..._preservedEditableCols,
         ..._preservedNameCols,
       ]);
-      String yearsOf(Map<String, dynamic> r) =>
-          '${r['dakhila_year'] ?? ''}|${r['exam_year'] ?? ''}';
-
-      final captureByDakhila = <String, (String, String?)>{
+      final captureByDakhila = <String, String?>{
         for (final r in old)
           if ((r['is_captured'] as int?) == 1)
-            (r['dakhila'] as String? ?? ''): (
-              yearsOf(r),
-              r['image_path'] as String?,
-            ),
+            (r['dakhila'] as String? ?? ''): r['image_path'] as String?,
       };
-      final editedByDakhila = <String, (String, Map<String, dynamic>)>{
+      final editedByDakhila = <String, Map<String, dynamic>>{
         for (final r in old)
           if ((r['is_edited'] as int?) == 1)
-            (r['dakhila'] as String? ?? ''): (yearsOf(r), r),
+            (r['dakhila'] as String? ?? ''): r,
       };
-      final namesByDakhila = <String, (String, Map<String, dynamic>)>{
+      final namesByDakhila = <String, Map<String, dynamic>>{
         for (final r in old)
-          (r['dakhila'] as String? ?? ''): (
-            yearsOf(r),
-            {
-              for (final col in _preservedNameCols) col: r[col],
-            }
-          ),
+          (r['dakhila'] as String? ?? ''): {
+            for (final col in _preservedNameCols) col: r[col],
+          }
       };
       // ইন্টিগ্রিটি ফিক্স: FK cascade চালু থাকায় students মুছলে documents rows-ও
       // মুছে যেত — তাই আগে স্ন্যাপশট নিয়ে নতুন ছাত্র বসানোর পরে ফিরিয়ে বসানো
@@ -859,29 +935,23 @@ class DatabaseHelper {
       for (final source in maps) {
         final m = Map<String, dynamic>.from(source);
         final dakhila = m['dakhila'] as String? ?? '';
-        final newYears = '${m['dakhila_year'] ?? ''}|${m['exam_year'] ?? ''}';
-        // H2: capture প্রিজার্ভ — শুধুমাত্র বছর-জোড়া হুবহু মিললে
+        // দাখিলা-মিল = একই ছাত্র — capture বহন (বছর-যাচাই নেই)
         if (preserveCaptures && captureByDakhila.containsKey(dakhila)) {
-          final (oldYears, oldPath) = captureByDakhila[dakhila]!;
-          if (oldYears == newYears) {
-            m['image_path'] = oldPath;
-            m['is_captured'] = 1;
-          } else {
-            report.collisions.add(dakhila);
-          }
+          m['image_path'] = captureByDakhila[dakhila];
+          m['is_captured'] = 1;
         }
         final edited = editedByDakhila[dakhila];
-        if (edited != null && edited.$1 == newYears) {
+        if (edited != null) {
           for (final col in _preservedEditableCols) {
-            final oldV = edited.$2[col];
+            final oldV = edited[col];
             if (oldV is String && oldV.isNotEmpty) m[col] = oldV;
           }
           m['is_edited'] = 1;
         }
         final oldNames = namesByDakhila[dakhila];
-        if (oldNames != null && oldNames.$1 == newYears) {
+        if (oldNames != null) {
           for (final col in _preservedNameCols) {
-            final v = oldNames.$2[col] as String?;
+            final v = oldNames[col] as String?;
             if (v != null && v.isNotEmpty && (m[col] as String? ?? '').isEmpty) {
               m[col] = v;
             }
@@ -891,30 +961,15 @@ class DatabaseHelper {
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
-      // documents পুনঃস্থাপন — নতুন ডেটায় যাদের দাখিলা আছে কেবল তাদের ডক;
-      // H2: বছর-মিল না হলে ডক-স্লটও নতুন ছাত্রের নামে বসবে না।
+      // documents পুনঃস্থাপন — নতুন ডেটায় যাদের দাখিলা আছে কেবল তাদের ডক
+      // (দাখিলা-মিল = একই ছাত্র, বছর-যাচাই নেই)।
       final keptDakhilas = <String>{
         for (final m in maps) (m['dakhila'] as String? ?? ''),
-      };
-      // H2: পুরনো বছর-জোড়া একবারই ম্যাপে তুলি (লুপে লুপ নয়)
-      final oldYearsByDakhila = <String, String>{
-        for (final r in old)
-          (r['dakhila'] as String? ?? ''): yearsOf(r),
       };
       final docBatch = txn.batch();
       for (final r in docRows) {
         final d = (r['dakhila'] as String?) ?? '';
         if (d.isEmpty || !keptDakhilas.contains(d)) continue;
-        if (preserveCaptures && oldYearsByDakhila.containsKey(d)) {
-          final newM = maps.firstWhere(
-            (m) => (m['dakhila'] as String? ?? '') == d,
-            orElse: () => const {},
-          );
-          final newYears = '${newM['dakhila_year'] ?? ''}|${newM['exam_year'] ?? ''}';
-          if (oldYearsByDakhila[d] != newYears) {
-            continue; // ভিন্ন বছর = ভিন্ন ব্যক্তি — ডক স্লট বহন নয়
-          }
-        }
         docBatch.insert('documents', r,
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -942,6 +997,267 @@ class DatabaseHelper {
       await txn.delete('documents');
       await txn.delete('students');
     });
+  }
+
+// -----------------------------------------------------------------------
+  // S2: সার্ভার-সিঙ্ক (offline-first)
+  // -----------------------------------------------------------------------
+
+  /// সার্ভার students টেবিলের نص-কলাম — এগুলোই pull-এ বসানো হয়।
+  /// ইচ্ছাকৃতভাবে বাদ: `image_path`, `is_captured`, `total_docs`, `is_edited`
+  /// — এগুলো **এই ফোনের** অবস্থা (কার ছবি তোলা হয়েছে), সার্ভার সেটা জানে না।
+  static const List<String> _serverStudentCols = [
+    'stu_name', 'class_name', 'forik_no', 'father_name', 'guardian_mobile',
+    'dakhila_year', 'class_level', 'marhala', 'exam_year', 'mother_name',
+    'birth_date', 'birth_certificate_no', 'stu_name_en', 'stu_name_ar',
+    'father_name_en', 'father_name_ar', 'mother_name_en', 'mother_name_ar',
+    'avg_num_month', 'avg_num_1st', 'avg_num_2nd', 'avg_num_final',
+    'address_vill', 'address_po', 'address_ps', 'address_dist',
+  ];
+
+  /// সার্ভার থেকে নামানো তালিকা বসানোর ফল।
+  /// * `added` — নতুন দাখিলা (এই ফোনে ছিল না)
+  /// * `updated` — সার্ভারের মান বসানো হলো
+  /// * `conflicts` — শিক্ষক নিজে সম্পাদনা করেছেন (is_edited=1); স্কুলের
+  ///   কেন্দ্রীয় মান তার উপরে চাপানো হলো না, শুধু `synced_at` হালনাগাদ
+  /// * `deactivated` — সার্ভারে মুছে-ফেলা (soft delete) → এই ফোন থেকেও বাদ
+  Future<StudentApplyStats> applyServerStudents(
+      List<Map<String, dynamic>> rows) async {
+    final stats = StudentApplyStats();
+    if (rows.isEmpty) return stats;
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final raw in rows) {
+        final dakhila = (raw['dakhila'] as String? ?? '').trim();
+        if (dakhila.isEmpty) continue;
+        final deleted = raw['deleted_at'] != null;
+        final found = await txn.query('students',
+            where: 'dakhila = ?', whereArgs: [dakhila], limit: 1);
+        final local = found.isEmpty ? null : found.first;
+
+        if (deleted) {
+          if (local != null) {
+            // সাবধান: শুধু তালিকা থেকে বাদ যাবে — ছবি/ডক ফাইল ডিস্কে অক্ষত,
+            // পরে অন্য বছর তালিকায় ফিরে এলে হাতে থাকবে।
+            await txn.delete('students',
+                where: 'dakhila = ?', whereArgs: [dakhila]);
+            stats.deactivated++;
+          }
+          continue;
+        }
+
+        final m = <String, dynamic>{'dakhila': dakhila};
+        for (final col in _serverStudentCols) {
+          if (raw.containsKey(col)) {
+            final v = raw[col];
+            m[col] = v == null ? null : (v is String ? v : '$v');
+          }
+        }
+        m['synced_at'] =
+            raw['updated_at'] == null ? null : '${raw['updated_at']}';
+
+        if (local == null) {
+          await txn.insert('students', m,
+              conflictAlgorithm: ConflictAlgorithm.ignore);
+          stats.added++;
+        } else if ((local['is_edited'] as int?) == 1) {
+          // শিক্ষকের সম্পাদনা প্রাধান্য পায়; কেন্দ্রীয় মান চাপানো হয় না
+          await txn.update('students', {'synced_at': m['synced_at']},
+              where: 'dakhila = ?', whereArgs: [dakhila]);
+          stats.conflicts++;
+        } else {
+          await txn.update('students', m,
+              where: 'dakhila = ?', whereArgs: [dakhila]);
+          stats.updated++;
+        }
+      }
+    });
+    return stats;
+  }
+
+  /// সার্ভারের documents রেজিস্ট্রি মিলিয়ে নেওয়া: এই ফোনে যে ডক আগেই আছে
+  /// কেবল তার `storage_path`/`server_at`/`captured_by` বসে (নকল ফাইল নামানো
+  /// হয় না — ব্যান্ডউইথ বাঁচে)। এই ফোনে না-থাকা ডক `cloud_docs` রেজিস্ট্রিতে
+  /// যায় (কোন ছবি অন্য শিক্ষক তুলেছেন — নামানোর তালিকা)।
+  Future<int> applyServerDocuments(List<Map<String, dynamic>> rows) async {
+    if (rows.isEmpty) return 0;
+    final db = await database;
+    var touched = 0;
+    for (final raw in rows) {
+      final dakhila = (raw['dakhila'] as String? ?? '').trim();
+      final type = '${raw['doc_type'] ?? ''}'.toUpperCase();
+      if (dakhila.isEmpty || type.isEmpty) continue;
+      if (raw['deleted_at'] != null) {
+        await db.delete('cloud_docs',
+            where: 'dakhila = ? AND doc_type = ?', whereArgs: [dakhila, type]);
+        continue;
+      }
+      final storage =
+          raw['storage_path'] == null ? null : '${raw['storage_path']}';
+      final capturedBy =
+          raw['captured_by'] == null ? null : '${raw['captured_by']}';
+      final serverAt =
+          raw['updated_at'] == null ? null : '${raw['updated_at']}';
+      final existsOnPhone = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM documents WHERE dakhila = ? AND doc_type = ?',
+              [dakhila, type])) ??
+          0;
+      if (existsOnPhone > 0) {
+        final n = await db.rawUpdate('''
+          UPDATE documents SET storage_path = ?, server_at = ?, captured_by = ?,
+            sync_state = CASE WHEN sync_state = 'pending' THEN 'pending' ELSE 'synced' END
+          WHERE dakhila = ? AND doc_type = ?
+        ''', [storage, serverAt, capturedBy, dakhila, type]);
+        await db.delete('cloud_docs',
+            where: 'dakhila = ? AND doc_type = ?', whereArgs: [dakhila, type]);
+        if (n > 0 && storage != null && storage.isNotEmpty) touched++;
+        continue;
+      }
+      if (storage == null || storage.isEmpty) continue;
+      await db.insert(
+        'cloud_docs',
+        {
+          'dakhila': dakhila,
+          'doc_type': type,
+          'storage_path': storage,
+          'mime_type':
+              raw['mime_type'] == null ? null : '${raw['mime_type']}',
+          'captured_by': capturedBy,
+          'captured_at':
+              raw['captured_at'] == null ? null : '${raw['captured_at']}',
+          'is_verified': '${raw['is_verified'] ?? '0'}' == '1' ? 1 : 0,
+          'synced_at': serverAt,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      touched++;
+    }
+    return touched;
+  }
+
+  Future<List<StudentDocument>> getPendingDocs({int limit = 25}) async {
+    final db = await database;
+    final rows = await db.query('documents',
+        where: _pendingDocWhere,
+        orderBy: 'updated_at ASC',
+        limit: limit);
+    return rows.map(StudentDocument.fromRow).toList();
+  }
+
+  /// ব্যাজের হিসাব — অপেক্ষমাণ/সম্পন্ন/ব্যর্থ/বাদ/মোট।
+  /// `sync_state` খালি/NULL (আপগ্রেড-পূর্ব পুরনো রো) = অপেক্ষমাণ ধরা হয়।
+  Future<Map<String, int>> docSyncCounts() async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT
+        SUM(CASE WHEN $_pendingDocWhere THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN sync_state = 'synced' THEN 1 ELSE 0 END) AS synced,
+        SUM(CASE WHEN sync_state = 'failed' THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN sync_state = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+        COUNT(*) AS total
+      FROM documents
+    ''');
+    final r = rows.isEmpty ? <String, Object?>{} : rows.first;
+    int v(String k) => (r[k] as num?)?.toInt() ?? 0;
+    return {
+      'pending': v('pending'),
+      'synced': v('synced'),
+      'failed': v('failed'),
+      'skipped': v('skipped'),
+      'total': v('total'),
+    };
+  }
+
+  /// সার্ভারে থাকা ডকুমেন্টের টাইপভিত্তিক হিসাব (cloud_docs রেজিস্ট্রি —
+  /// এই ফোনে না-থাকা ছবিও গোনা হয়)।
+  Future<Map<String, int>> cloudDocStats() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        'SELECT doc_type, COUNT(*) AS c FROM cloud_docs GROUP BY doc_type');
+    final out = <String, int>{};
+    for (final r in rows) {
+      final t = (r['doc_type'] as String?) ?? '?';
+      out[t] = (r['c'] as num?)?.toInt() ?? 0;
+    }
+    return out;
+  }
+
+  /// সফল আপলোডের ছাপ।
+  Future<void> markDocSynced(String dakhila, DocType type, String storagePath,
+      String? capturedBy) async {
+    final db = await database;
+    await db.update(
+      'documents',
+      {
+        'sync_state': 'synced',
+        'storage_path': storagePath,
+        'server_at': DateTime.now().toIso8601String(),
+        'captured_by': capturedBy,
+      },
+      where: 'dakhila = ? AND doc_type = ?',
+      whereArgs: [dakhila, type.name],
+    );
+  }
+
+  /// ব্যর্থ (বা সার্ভারে ছাত্রই নেই) — `failed` অবস্থা, পরে আবার চেষ্টা হবে।
+  Future<void> markDocFailed(String dakhila, DocType type) async {
+    final db = await database;
+    await db.update('documents', {'sync_state': 'failed'},
+        where: 'dakhila = ? AND doc_type = ?', whereArgs: [dakhila, type.name]);
+  }
+
+  /// পুরনো ছবি সার্ভারে যাবে কি না — এক কমান্ডে সব ডক সামলানো।
+  /// true → সব `pending` (আপলোড হবে); false → `skipped` (শুধু নতুন ছবি যাবে)।
+  /// রিটার্ন: যতগুলো রো বদলেছে। `synced` কখনো ছোঁয়া হয় না।
+  Future<int> setAllDocsSyncState(bool uploadAll) async {
+    final db = await database;
+    return await db.rawUpdate(
+      "UPDATE documents SET sync_state = ? WHERE sync_state != 'synced'",
+      [uploadAll ? 'pending' : 'skipped'],
+    );
+  }
+
+  /// আপলোডের জন্য তালিকা (সার্ভার students টেবিলের কলাম-বিন্যাসে)।
+  Future<List<Map<String, dynamic>>> getStudentsForUpload() async {
+    final db = await database;
+    final rows = await db.query('students',
+        columns: ['dakhila', ..._serverStudentCols],
+        orderBy: 'CAST(dakhila AS INTEGER) ASC');
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// admin তালিকা পাঠানোর পরে ছাপ।
+  Future<void> markAllStudentsSynced(String? serverTime) async {
+    final db = await database;
+    await db.update('students', {
+      'synced_at': serverTime ?? DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// সিঙ্ক-সেশনের হিসাব সংরক্ষণ (UI-র ইতিহাস)।
+  Future<void> addSyncLog({
+    required String startedAt,
+    required int uploaded,
+    required int downloaded,
+    required int failed,
+    required String note,
+  }) async {
+    final db = await database;
+    await db.insert('sync_log', {
+      'started_at': startedAt,
+      'uploaded': uploaded,
+      'downloaded': downloaded,
+      'failed': failed,
+      'note': note,
+    });
+    // পুরনো হিসাব জমতে না দিয়ে শেষ ৩০টি রাখা হয়
+    await db.rawDelete('DELETE FROM sync_log WHERE id NOT IN '
+        '(SELECT id FROM sync_log ORDER BY id DESC LIMIT 30)');
+  }
+
+  Future<List<Map<String, dynamic>>> recentSyncLogs({int limit = 5}) async {
+    final db = await database;
+    return await db.query('sync_log', orderBy: 'id DESC', limit: limit);
   }
 
   Student _mapToStudent(Map<String, dynamic> m) {
@@ -990,7 +1306,7 @@ class DatabaseHelper {
       for (final u in updates) {
         applied += await txn.update(
           'students',
-          {...u.values, 'is_edited': 1},
+          {...u.values, 'is_edited': 1, 'sync_state': 'pending'},
           where: 'dakhila = ?',
           whereArgs: [u.dakhila],
         );
@@ -1016,6 +1332,7 @@ class DatabaseHelper {
             if (u.en.isNotEmpty) 'stu_name_en': u.en,
             if (u.ar.isNotEmpty) 'stu_name_ar': u.ar,
             'is_edited': 1,
+            'sync_state': 'pending',
           },
           where: 'dakhila = ?',
           whereArgs: [u.dakhila],
@@ -1073,6 +1390,33 @@ class DatabaseHelper {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  // ==========================================================================
+  // S2: ক্লাউড-সিঙ্ক সাহায্যকারী (lib/services/sync_service.dart ব্যবহার করে)
+  // ==========================================================================
+
+  /// আপলোডের অপেক্ষায় থাকা ডকুমেন্টের শর্ত — `sync_state` খালি (পুরনো রো),
+  /// 'pending' বা 'failed' সবই অপেক্ষমাণ; 'synced'/'skipped' বাদ।
+  static const String _pendingDocWhere =
+      "status = 1 AND file_path IS NOT NULL AND file_path <> '' "
+      "AND (sync_state IS NULL OR sync_state IN ('pending','failed','local'))";
+
+  /// ফাইল সত্যিই ডিস্কে আছে এমন অপেক্ষমাণ ডকুমেন্টের সংখ্যা।
+  Future<int> countPendingDocs() async {
+    final db = await database;
+    return Sqflite.firstIntValue(await db.rawQuery(
+          'SELECT COUNT(*) FROM documents WHERE $_pendingDocWhere',
+        )) ??
+        0;
+  }
+
+  /// সার্ভারে আছে কিন্তু এই ফোনে নেই — এক দাখিলার ডক-টাইপ সেট।
+  Future<Set<String>> cloudDocTypesFor(String dakhila) async {
+    final db = await database;
+    final rows = await db.query('cloud_docs',
+        columns: ['doc_type'], where: 'dakhila = ?', whereArgs: [dakhila]);
+    return rows.map((r) => (r['doc_type'] as String?) ?? '').toSet();
   }
 
   /// টেস্টে ডাটাবেস ইনস্ট্যান্স রিসেট করার জন্য।

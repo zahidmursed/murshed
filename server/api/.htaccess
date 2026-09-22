@@ -1,0 +1,25 @@
+# Dakhila Camera API — Apache সেটিংস (XAMPP/cPanel)
+# Authorization হেডার PHP-তে পৌঁছানো নিশ্চিত করে (CGI/FastCGI হোস্টিংয়ে জরুরি)
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+# ছবি-আপলোডের সীমা (push_doc.php-এর ১০MB-র সাথে মিলিয়ে)
+<IfModule mod_php7.c>
+  php_value upload_max_filesize 12M
+  php_value post_max_size 14M
+  php_value max_execution_time 60
+</IfModule>
+
+# ডিরেক্টরি-লিস্টিং বন্ধ
+Options -Indexes
+
+# config.php সরাসরি ব্রাউজারে খোলার চেষ্টা বন্ধ (PHP ফাইল হলে নিজেই রান হয় — এটা বাড়তি সুরক্ষা)
+<Files "config.php">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+</Files>

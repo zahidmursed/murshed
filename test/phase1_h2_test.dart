@@ -63,7 +63,7 @@ void main() {
     expect(s102.totalDocs, 2);
   });
 
-  test('year mismatch: capture/document NOT carried to new person',
+  test('same dakhila, different year: SAME person — capture/doc carried',
       () async {
     final tmpDir = await Directory.systemTemp.createTemp('dakhila_h2_test');
     addTearDown(() async {
@@ -77,17 +77,17 @@ void main() {
     await db.updateImage('201', '${tmpDir.path}/201.jpg');
     await db.insertDocument('201', 'PHOTO', '${tmpDir.path}/201.jpg');
 
-    // একই দাখিলা, কিন্তু ভিন্ন বছর = ভিন্ন ব্যক্তি
-    final r = await db
-        .replaceAllStudents([row('201', dYear: '2027', eYear: '2027', name: 'নতুন ছাত্র')]);
+    // দাখিলা-নম্বরই স্থায়ী পরিচয়: একই দাখিলা ভিন্ন বছরে = একই ব্যক্তি
+    // (নতুন ব্যাচ নয়) — ছবি ও ডক-স্লট বহন হবে।
+    final r = await db.replaceAllStudents(
+        [row('201', dYear: '2027', eYear: '2027', name: 'নতুন ডেটা')]);
     expect(r.imported, 1);
-    expect(r.collisions, contains('201'));
 
     final all = await db.getAllStudents();
     final s = all.firstWhere((x) => x.dakhila == '201');
-    expect(s.isCaptured, 0, reason: 'নতুন ব্যক্তি পুরনো ছবি পায় না');
-    expect(s.imagePath, isNull);
-    expect(s.totalDocs, 0, reason: 'নতুন ব্যক্তির নামে ডক-স্লট বসে না');
+    expect(s.isCaptured, 1, reason: 'একই ব্যক্তি — পুরনো ছবি বহন হয়');
+    expect(s.imagePath, endsWith('201.jpg'));
+    expect(s.totalDocs, 1, reason: 'একই ব্যক্তি — ডক-স্লট বহন হয়');
   });
 
   test('deleteAllStudents clears documents too (reset semantics)', () async {

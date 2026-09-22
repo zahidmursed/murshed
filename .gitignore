@@ -33,6 +33,10 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# সার্ভারে আপলোড হওয়া ছাত্র-ছবি/ডকুমেন্ট — Git-এ কখনোই নয়
+/server/uploads/*
+!/server/uploads/.htaccess
+
 # Symbolication related
 app.*.symbols
 

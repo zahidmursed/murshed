@@ -13,8 +13,10 @@ import '../db/database_helper.dart' show ReplaceReport;
 import '../providers/student_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_service.dart';
+import '../services/sync_service.dart';
 import '../utils/case_notes_guard.dart';
 import '../utils/image_processor.dart';
+import 'sync_screen.dart';
 import 'teacher_manage_screen.dart';
 
 /// সেটিংস: কাস্টম JSON ইমপোর্ট, ডেটা রিসেট, আউটপুট ফোল্ডার।
@@ -79,19 +81,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final result = await run(path);
       if (!mounted) return;
-      // Phase 1 (H2): রিপোর্ট এলে collision-সংখ্যাও দেখাই — এই দাখিলাগুলোর
-      // পুরনো ছবি/সম্পাদনা নতুন ছাত্রের নামে বসেনি (বছর-অমিল)।
+      // রিপোর্ট এলে সংখ্যা দেখাই; collisions এখন কেবল অভ্যন্তরীণ
+      // (দাখিলা-মিল = একই ছাত্র, বছর-যাচাই নেই — তাই ইউজার-সতর্কতা আর লাগে না)।
       var msg = '$label সম্পন্ন';
       if (result is int) {
         msg = '$result টি রেকর্ড ইমপোর্ট হয়েছে ✓';
       } else if (result is ReplaceReport) {
         msg = '${result.imported} টি রেকর্ড ইমপোর্ট হয়েছে ✓';
-        if (result.collisions.isNotEmpty) {
-          msg += ' — সতর্কতা: ${result.collisions.length} টি দাখিলার '
-              'পুরনো ছবি/তথ্য বছর-অমিলের কারণে সংরক্ষিত হয়নি '
-              '(${result.collisions.take(5).join(', ')}'
-              '${result.collisions.length > 5 ? '…' : ''})';
-        }
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
@@ -546,6 +542,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// সার্ভার-সিঙ্ক কার্ড — লগইন/অবস্থা/সিঙ্ক বোতাম।
+  Widget _syncCard(BuildContext context) {
+    return Consumer<SyncService>(
+      builder: (context, sync, _) {
+        final s = sync.settings;
+        final loggedIn = s.isLoggedIn;
+        final pending = sync.pendingDocs;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final muted = isDark ? Colors.white60 : Colors.black54;
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.cloud_sync,
+                        color: loggedIn ? Colors.green : Colors.grey),
+                    const SizedBox(width: 8),
+                    const Text('সার্ভার সিঙ্ক (অফলাইন-ফার্স্ট)',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  loggedIn
+                      ? 'লগইন: ${s.teacherName.isNotEmpty ? s.teacherName : s.email}'
+                          ' (${s.isAdmin ? 'প্রধান' : 'শিক্ষক'})\nসার্ভার: ${s.serverUrl}\n'
+                          'ছবি — সার্ভারে ${sync.syncedDocs}, বাকি $pending'
+                      : 'ইন্টারনেট ছাড়াও অ্যাপ আগের মতোই চলবে। সার্ভারে ঢুকলে '
+                          'তোলা ছবি নিজে নিজে ওঠে যাবে এবং প্রধান নতুন '
+                          'তালিকা দিলে সেটা এই ফোনে নেমে আসবে।',
+                  style: TextStyle(fontSize: 11, color: muted),
+                ),
+                if (pending > 0 && loggedIn) ...[
+                  const SizedBox(height: 6),
+                  Text('$pending টি ছবি সিঙ্ক বাকি…',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w600)),
+                ],
+                if (sync.lastReport != null) ...[
+                  const SizedBox(height: 4),
+                  Text('শেষ সিঙ্ক: ${sync.lastReport!.summary}',
+                      style: TextStyle(fontSize: 11, color: muted)),
+                ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const SyncScreen()),
+                          );
+                        },
+                        icon: Icon(loggedIn ? Icons.sync : Icons.login),
+                        label: Text(loggedIn ? 'সিঙ্ক' : 'সার্ভারে লগইন'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -624,6 +695,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.cloud_sync, color: Colors.blue),
+                  title: const Text('সার্ভার সিঙ্ক (অফিসের কম্পিউটার)'),
+                  subtitle: const Text(
+                      'একবার লগইন করলে ছবি নিজে নিজে সার্ভারে যাবে; '
+                      'অফিসে তালিকা বদলালে সব ফোনে চলে আসবে'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SyncScreen()),
+                    );
+                    if (context.mounted) provider.load();
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              _syncCard(context),
               const SizedBox(height: 12),
               Card(
                 child: Padding(

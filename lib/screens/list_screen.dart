@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/document.dart';
 import '../models/student.dart';
 import '../providers/student_provider.dart';
+import '../services/sync_service.dart';
 import '../utils/contact_helper.dart';
 import 'batch_scan_screen.dart';
 import 'camera_screen.dart';
@@ -15,6 +16,7 @@ import 'gallery_screen.dart';
 import 'settings_screen.dart';
 import 'student_edit_screen.dart';
 import 'student_report_screen.dart';
+import 'sync_screen.dart';
 
 class ListScreen extends StatefulWidget {
   const ListScreen({super.key});
@@ -30,7 +32,10 @@ class _ListScreenState extends State<ListScreen> {
     super.initState();
     // async gap-এর আগেই provider capture — use_build_context_synchronously এড়াতে
     final provider = context.read<StudentProvider>();
+    final sync = context.read<SyncService>();
     Future.microtask(provider.load);
+    // S2: অ্যাপ খুললেই সুযোগ পেলে নিজে নিজে সিঙ্ক (লগইন না থাকলে নিষ্ক্রিয়)
+    Future.microtask(() => sync.maybeAutoSync());
   }
 
   @override
@@ -89,6 +94,28 @@ class _ListScreenState extends State<ListScreen> {
             },
           ),
           IconButton(
+            tooltip: 'ছবি সিঙ্ক (সার্ভার)',
+            icon: Consumer<SyncService>(
+              builder: (_, sync, __) {
+                final pending = sync.pendingDocs;
+                return Badge(
+                  isLabelVisible: pending > 0,
+                  label: Text('$pending'),
+                  backgroundColor: Colors.orange.shade700,
+                  child: Icon(sync.isConfigured
+                      ? (sync.isBusy
+                          ? Icons.sync
+                          : (pending > 0 ? Icons.cloud_upload : Icons.cloud_done))
+                      : Icons.cloud_off),
+                );
+              },
+            ),
+            onPressed: () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SyncScreen()));
+            },
+          ),
+          IconButton(
             tooltip: 'এক্সপোর্ট',
             icon: const Icon(Icons.folder_zip),
             onPressed: () {
@@ -96,6 +123,32 @@ class _ListScreenState extends State<ListScreen> {
                   MaterialPageRoute(builder: (_) => const ExportScreen()));
             },
           ),
+          Consumer<SyncService>(builder: (_, sync, __) {
+            final pending = sync.pendingDocs;
+            return IconButton(
+              tooltip: sync.settings.isLoggedIn
+                  ? (pending > 0 ? '$pending টি ছবি সিঙ্ক বাকি' : 'সিঙ্ক চালু')
+                  : 'সার্ভার সিঙ্ক (লগইন)',
+              icon: Badge(
+                isLabelVisible: pending > 0,
+                label: Text('$pending'),
+                child: Icon(
+                  sync.isBusy
+                      ? Icons.sync
+                      : (sync.settings.isLoggedIn
+                          ? Icons.cloud_sync
+                          : Icons.cloud_off),
+                  color: sync.isBusy ? Colors.amber : null,
+                ),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SyncScreen()),
+                );
+              },
+            );
+          }),
           IconButton(
             tooltip: 'সেটিংস',
             icon: const Icon(Icons.settings),
