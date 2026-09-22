@@ -13,6 +13,7 @@ import '../services/scanner_service.dart';
 import '../services/storage_service.dart';
 import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
+import '../utils/safe_cropper.dart';
 import 'camera_screen.dart';
 
 /// BIRTH/FORM ডকুমেন্ট স্ক্যানার — ML Kit দিয়ে তুলে (অটো এজ-ডিটেকশন +
@@ -203,19 +204,21 @@ class _DocumentScannerScreenState extends State<DocumentScannerScreen> {
       final tempSource =
           await StorageService.temporaryCropSource(widget.student.dakhila);
       await File(tempSource).writeAsBytes(base, flush: true);
-      crop = await ImageCropper().cropImage(
-        sourcePath: tempSource,
-        compressFormat: ImageCompressFormat.jpg,
-        compressQuality: 95,
-        uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: 'কর্নার ঠিক করুন',
-            toolbarColor: Colors.teal,
-            toolbarWidgetColor: Colors.white,
-            lockAspectRatio: false,
-            hideBottomControls: false,
-          )
-        ],
+      crop = await SafeCropper.crop(
+        () => ImageCropper().cropImage(
+          sourcePath: tempSource,
+          compressFormat: ImageCompressFormat.jpg,
+          compressQuality: 95,
+          uiSettings: [
+            AndroidUiSettings(
+              toolbarTitle: 'কর্নার ঠিক করুন',
+              toolbarColor: Colors.teal,
+              toolbarWidgetColor: Colors.white,
+              lockAspectRatio: false,
+              hideBottomControls: false,
+            )
+          ],
+        ),
       );
       final f = File(tempSource);
       if (await f.exists()) await f.delete();

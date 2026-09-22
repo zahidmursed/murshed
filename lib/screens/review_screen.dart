@@ -10,6 +10,7 @@ import '../providers/student_provider.dart';
 import '../services/storage_service.dart';
 import '../utils/gallery_saver.dart';
 import '../utils/image_processor.dart';
+import '../utils/safe_cropper.dart';
 import 'camera_screen.dart';
 
 /// Review keeps the raw capture temporarily, so each manual crop starts clean.
@@ -75,23 +76,25 @@ class _ReviewScreenState extends State<ReviewScreen> {
         await StorageService.temporaryCropSource(widget.student.dakhila);
     final prepared =
         await prepareCropSource(srcPath: raw, destPath: prepDest);
-    final crop = await ImageCropper().cropImage(
-      sourcePath: prepared ?? raw,
-      aspectRatio: CropAspectRatio(
-        ratioX: passportWidth.toDouble(),
-        ratioY: passportHeight.toDouble(),
+    final crop = await SafeCropper.crop(
+      () => ImageCropper().cropImage(
+        sourcePath: prepared ?? raw,
+        aspectRatio: CropAspectRatio(
+          ratioX: passportWidth.toDouble(),
+          ratioY: passportHeight.toDouble(),
+        ),
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 100,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'পাসপোর্ট ক্রপ',
+            toolbarColor: Colors.teal,
+            toolbarWidgetColor: Colors.white,
+            lockAspectRatio: true,
+            hideBottomControls: false,
+          )
+        ],
       ),
-      compressFormat: ImageCompressFormat.jpg,
-      compressQuality: 100,
-      uiSettings: [
-        AndroidUiSettings(
-          toolbarTitle: 'পাসপোর্ট ক্রপ',
-          toolbarColor: Colors.teal,
-          toolbarWidgetColor: Colors.white,
-          lockAspectRatio: true,
-          hideBottomControls: false,
-        )
-      ],
     );
     if (crop == null || !mounted) return;
     try {

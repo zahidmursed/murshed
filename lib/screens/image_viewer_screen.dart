@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
+
+import '../utils/safe_cropper.dart';
 import 'package:provider/provider.dart';
 
 import '../models/document.dart';
@@ -70,24 +72,26 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       final prepared = await prepareCropSource(
           srcPath: path, destPath: prepDest);
       if (prepared == null) throw StateError('invalid image');
-      crop = await ImageCropper().cropImage(
-        sourcePath: prepared,
-        aspectRatio: passport
-            ? CropAspectRatio(
-                ratioX: passportWidth.toDouble(),
-                ratioY: passportHeight.toDouble())
-            : null,
-        compressFormat: ImageCompressFormat.jpg,
-        compressQuality: 100,
-        uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: passport ? 'পাসপোর্ট ক্রপ' : 'মুক্ত ক্রপ',
-            toolbarColor: Colors.teal,
-            toolbarWidgetColor: Colors.white,
-            lockAspectRatio: passport,
-            hideBottomControls: false,
-          )
-        ],
+      crop = await SafeCropper.crop(
+        () => ImageCropper().cropImage(
+          sourcePath: prepared,
+          aspectRatio: passport
+              ? CropAspectRatio(
+                  ratioX: passportWidth.toDouble(),
+                  ratioY: passportHeight.toDouble())
+              : null,
+          compressFormat: ImageCompressFormat.jpg,
+          compressQuality: 100,
+          uiSettings: [
+            AndroidUiSettings(
+              toolbarTitle: passport ? 'পাসপোর্ট ক্রপ' : 'মুক্ত ক্রপ',
+              toolbarColor: Colors.teal,
+              toolbarWidgetColor: Colors.white,
+              lockAspectRatio: passport,
+              hideBottomControls: false,
+            )
+          ],
+        ),
       );
     } catch (e) {
       debugPrint('Crop editor failed: $e');

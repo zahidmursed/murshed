@@ -13,6 +13,7 @@ import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.util.Log
 import java.io.File
 import java.io.FileInputStream
 
@@ -367,7 +368,25 @@ class MainActivity : FlutterActivity() {
         resultCode: Int,
         data: Intent?
     ) {
-        super.onActivityResult(requestCode, resultCode, data)
+        // image_cropper (uCrop, request 69)-এর পরিচিত রেস: একই method-channel
+        // রিপ্লাই দুইবার জমা হলে নেটিভ দিক "Reply already submitted" ছুঁড়ে
+        // ActivityThread.deliverResults থেকে পুরো অ্যাপ ক্র্যাশ করায়
+        // (upstream issue #189, এখনো unfixed)। প্রথম রিপ্লাই ডার্টে পৌঁছে
+        // যাওয়ার পরেই দ্বিতীয়টা আসে — তাই শুধু এই নির্দিষ্ট ব্যতিক্রমটা
+        // লগে ফেলে দিলেই ক্র্যাশ বন্ধ; অন্য IllegalStateException আটকাই না।
+        try {
+            super.onActivityResult(requestCode, resultCode, data)
+        } catch (e: IllegalStateException) {
+            if (e.message?.contains("Reply already submitted") == true) {
+                Log.w(
+                    "MainActivity",
+                    "activity-result double-reply ignored (request=$requestCode, result=$resultCode)",
+                    e
+                )
+            } else {
+                throw e
+            }
+        }
         if (requestCode == 3001) {
             val pending = folderStageResult
             folderStageResult = null
